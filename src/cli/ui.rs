@@ -11,7 +11,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Min(0),    // Main content
             Constraint::Length(3), // Footer
         ])
-        .split(f.size());
+        .split(f.area());
 
     let title = Paragraph::new("Eros Image Tagger")
         .style(Style::default().fg(Color::LightCyan))
@@ -43,6 +43,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
             let text = match item {
                 MenuItem::Model => format!("Model: < {} >", config.model.to_string()),
                 MenuItem::InputPath => format!("Input Path: {}", config.input_path),
+                MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
                 MenuItem::Threshold => format!("Threshold: {}", config.threshold),
                 MenuItem::BatchSize => format!("Batch Size: {}", config.batch_size),
                 MenuItem::Start => "Start Processing".to_string(),
@@ -66,6 +67,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
 fn render_popup(f: &mut Frame, app: &App) {
     let popup_title = match app.currently_editing() {
         Some(MenuItem::InputPath) => "Edit Input Path",
+        Some(MenuItem::VideoPath) => "Edit Video Path",
         Some(MenuItem::Threshold) => "Edit Threshold",
         Some(MenuItem::BatchSize) => "Edit Batch Size",
         _ => "Editing",
@@ -75,7 +77,7 @@ fn render_popup(f: &mut Frame, app: &App) {
         .title(popup_title)
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::DarkGray));
-    let area = centered_rect(60, 20, f.size());
+    let area = centered_rect(60, 20, f.area());
     f.render_widget(Clear, area); //this clears the background
     f.render_widget(block, area);
 
@@ -116,12 +118,12 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-pub fn draw_progress(f: &mut Frame, total: u64, current: u64) {
+pub fn draw_progress(f: &mut Frame, total: u64, current: u64, current_file: &str, ram_usage: &str) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-        .split(f.size());
+        .split(f.area());
 
     let title = Paragraph::new("Eros Image Tagger - Processing")
         .style(Style::default().fg(Color::LightCyan))
@@ -147,5 +149,17 @@ pub fn draw_progress(f: &mut Frame, total: u64, current: u64) {
         .percent(progress_percent)
         .label(format!("{}/{}", current, total));
 
-    f.render_widget(gauge, chunks[1]);
+    let info_text = format!("Processing: {}\n{}", current_file, ram_usage);
+    let info = Paragraph::new(info_text)
+        .style(Style::default().fg(Color::White))
+        .alignment(Alignment::Center);
+
+    let progress_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Length(3), Constraint::Min(1)].as_ref())
+        .split(chunks[1]);
+
+    f.render_widget(gauge, progress_chunks[0]);
+    f.render_widget(info, progress_chunks[1]);
 }

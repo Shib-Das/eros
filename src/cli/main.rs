@@ -27,6 +27,7 @@ use hf_hub::Cache;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashSet,
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -34,6 +35,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use sysinfo::System;
+use ffmpeg_sidecar::{command::FfmpegCommand, event::FfmpegEvent};
+
 
 use crate::file::TaggingResultSimple;
 
@@ -106,6 +110,11 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
     let config_file_path = config_file.get_with_cache(cache.clone())?;
     let tag_csv_file_path = tag_csv_file.get_with_cache(cache.clone())?;
     println!("Download complete.");
+    
+    // download ffmpeg
+    println!("Downloading ffmpeg...");
+    ffmpeg_sidecar::download::auto_download().unwrap();
+    println!("Download complete.");
 
     // load model
     TaggerModel::use_devices(device)?; // do once
@@ -116,6 +125,7 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
 
     // I/O
     let input = PathBuf::from_str(&config.input_path)?;
+    let video_input = PathBuf::from_str(&config.video_path)?;
 
     // load pipe
     let mut pipe = TaggingPipeline::new(model, preprocessor, label_tags, &config.threshold);
@@ -145,13 +155,25 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
         }
         false => {
             let image_files = file::get_image_files(input.to_str().unwrap()).await?;
+            let video_files = file::get_video_files(video_input.to_str().unwrap()).await?;
             let total_images = image_files.len() as u64;
-            println!("Found {} image files. Starting TUI progress view.", total_images);
+            let total_videos = video_files.len() as u64;
+
+            println!(
+                "Found {} image files and {} video files. Starting TUI progress view.",
+                total_images, total_videos
+            );
 
             let progress = Arc::new(Mutex::new(0u64));
+            let current_file = Arc::new(Mutex::new(String::new()));
+            let ram_usage = Arc::new(Mutex::new(String::new()));
+
             let tui_progress = progress.clone();
+            let tui_current_file = current_file.clone();
+            let tui_ram_usage = ram_usage.clone();
 
             let tui_thread = std::thread::spawn(move || -> Result<()> {
+                let mut sys = System::new_all();
                 enable_raw_mode()?;
                 let mut stdout = io::stdout();
                 execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -159,9 +181,26 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
                 let mut terminal = Terminal::new(backend)?;
 
                 loop {
+                    sys.refresh_all();
                     let current = *tui_progress.lock().unwrap();
-                    terminal.draw(|f| ui::draw_progress(f, total_images, current))?;
-                    if current >= total_images {
+                    let file = tui_current_file.lock().unwrap().clone();
+                    let ram = format!(
+                        "RAM: {} / {} MB",
+                        sys.used_memory() / 1024 / 1024,
+                        sys.total_memory() / 1024 / 1024
+                    );
+                    *tui_ram_usage.lock().unwrap() = ram;
+
+                    terminal.draw(|f| {
+                        ui::draw_progress(
+                            f,
+                            total_images + total_videos,
+                            current,
+                            &file,
+                            &tui_ram_usage.lock().unwrap(),
+                        )
+                    })?;
+                    if current >= total_images + total_videos {
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(100));
@@ -185,8 +224,13 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
                     let pipe = Arc::clone(&pipe);
                     let progress = Arc::clone(&progress);
                     let db = Arc::clone(&db);
+                    let current_file = Arc::clone(&current_file);
 
                     async move {
+                        for image_path in &image_paths {
+                            *current_file.lock().unwrap() =
+                                image_path.to_str().unwrap().to_string();
+                        }
                         let imgs = image_paths
                             .iter()
                             .map(|path| {
@@ -222,6 +266,56 @@ async fn run_tagging_process(config: AppConfig) -> Result<()> {
                 .buffer_unordered(4)
                 .try_collect::<Vec<_>>()
                 .await?;
+
+            for video_path in video_files {
+                *current_file.lock().unwrap() = video_path.to_str().unwrap().to_string();
+                let temp_dir =
+                    format!("./temp_{}", video_path.file_stem().unwrap().to_str().unwrap());
+                fs::create_dir_all(&temp_dir)?;
+
+                let mut all_tags = HashSet::new();
+
+                let mut child = FfmpegCommand::new()
+                    .input(video_path.to_str().unwrap())
+                    .args(["-vf", "fps=1/5"])
+                    .args(["-f", "image2pipe", "-c:v", "png", "pipe:1"])
+                    .spawn()?;
+                
+                let mut frame_count = 0;
+                for event in child.iter().unwrap() {
+                    if let FfmpegEvent::OutputFrame(frame) = event {
+                        let frame_path = format!("{}/frame_{}.png", temp_dir, frame_count);
+                        fs::write(&frame_path, &frame.data)?;
+                        frame_count += 1;
+
+                        let img = image::open(&frame_path)?;
+                        let result = pipe.lock().unwrap().predict(img)?;
+                        let simple_result = TaggingResultSimple::from(result);
+
+                        for tag in simple_result.tags.split(", ") {
+                            all_tags.insert(tag.to_string());
+                        }
+                    }
+                }
+
+                child.wait()?;
+
+                let hash = get_hash(&video_path)?;
+                let size = fs::metadata(&video_path)?.len();
+                let tags = all_tags.into_iter().collect::<Vec<_>>().join(", ");
+
+                db.lock().unwrap().save_tags(
+                    video_path.to_str().unwrap(),
+                    size,
+                    &hash,
+                    &tags,
+                )?;
+
+                fs::remove_dir_all(&temp_dir)?;
+
+                let mut num = progress.lock().unwrap();
+                *num += 1;
+            }
 
             tui_thread.join().unwrap()?;
             println!("Processing complete.");

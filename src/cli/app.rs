@@ -9,6 +9,7 @@ use super::ui;
 pub struct AppConfig {
     pub model: V3Model,
     pub input_path: String,
+    pub video_path: String,
     pub threshold: f32,
     pub batch_size: usize,
 }
@@ -24,6 +25,7 @@ enum CurrentScreen {
 pub enum MenuItem {
     Model,
     InputPath,
+    VideoPath,
     Threshold,
     BatchSize,
     Start,
@@ -44,6 +46,7 @@ impl Default for App {
             config: AppConfig {
                 model: V3Model::SwinV2,
                 input_path: "./images".to_string(),
+                video_path: "./videos".to_string(),
                 threshold: 0.35,
                 batch_size: 1,
             },
@@ -52,6 +55,7 @@ impl Default for App {
             menu_items: vec![
                 MenuItem::Model,
                 MenuItem::InputPath,
+                MenuItem::VideoPath,
                 MenuItem::Threshold,
                 MenuItem::BatchSize,
                 MenuItem::Start,
@@ -114,6 +118,7 @@ impl App {
                     self.currently_editing = Some(current_item);
                     self.input_text = match current_item {
                         MenuItem::InputPath => self.config.input_path.clone(),
+                        MenuItem::VideoPath => self.config.video_path.clone(),
                         MenuItem::Threshold => self.config.threshold.to_string(),
                         MenuItem::BatchSize => self.config.batch_size.to_string(),
                         _ => String::new(),
@@ -131,6 +136,7 @@ impl App {
                 if let Some(editing) = self.currently_editing {
                     match editing {
                         MenuItem::InputPath => self.config.input_path = self.input_text.clone(),
+                        MenuItem::VideoPath => self.config.video_path = self.input_text.clone(),
                         MenuItem::Threshold => {
                             if let Ok(val) = self.input_text.parse() {
                                 self.config.threshold = val;
