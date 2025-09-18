@@ -1,0 +1,35 @@
+# This file contains project-specific configuration for Cargo.
+# It's intended to speed up development builds and optimize release builds.
+
+# Settings for the development profile, used when you run `cargo build` or `cargo run`.
+[profile.dev]
+codegen-units = 16      # Increases parallelism. Higher is faster, but may produce slower runtime code.
+debug = 1               # "line-tables-only" debug info. Faster than full debug info (2).
+incremental = true      # Enabled by default for dev, but good to be explicit.
+
+# Settings for the release profile, used when you run `cargo build --release`.
+[profile.release]
+lto = "thin"             # Enable Thin Link-Time Optimization for better whole-program optimization.
+codegen-units = 1        # Compile the crate as a single unit to maximize optimization opportunities.
+panic = "abort"          # Abort on panic, which can create smaller and faster binaries.
+strip = true             # Strip debug symbols from the final executable to reduce size.
+
+# --- Platform-Specific Linker Settings ---
+# On each platform, Cargo will use the settings under the matching target triple.
+
+# For Linux (x86_64)
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"] # Packages required: clang, lld
+
+# For macOS (Apple Silicon)
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/zld"] # Package required: zld
+
+# For macOS (Intel)
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/bin/zld"] # Package required: zld
+
+# For Windows (MSVC)
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "linker=lld-link.exe"] # Package required: LLVM (for lld-link)

@@ -55,7 +55,6 @@ impl Tag {
 /// The tags in the CSV file
 #[derive(Debug, Clone)]
 pub struct LabelTags {
-    total_tags: usize,
     label2tag: HashMap<String, Tag>,
     idx2tag: HashMap<usize, Tag>,
 }
@@ -71,7 +70,6 @@ impl LabelTags {
             .map(|result| result.map_err(|e| TaggerError::Tag(e.to_string())))
             .collect::<Result<Vec<Tag>, TaggerError>>()?;
 
-        let total_tags = tag_list.len();
         let label2tag = tag_list
             .iter()
             .map(|tag| (tag.name.clone(), tag.clone()))
@@ -82,7 +80,6 @@ impl LabelTags {
             .collect::<HashMap<usize, Tag>>();
 
         Ok(Self {
-            total_tags,
             label2tag,
             idx2tag,
         })
@@ -111,7 +108,7 @@ impl LabelTags {
             Ok(probs
                 .iter()
                 .enumerate()
-                .map(|(idx, prob)| (idx2tags.get(&idx).unwrap().name(), prob.clone()))
+                .map(|(idx, prob)| (idx2tags.get(&idx).unwrap().name(), *prob))
                 .collect::<HashMap<String, f32>>())
         }
 
@@ -169,7 +166,7 @@ mod test {
 
         let random_prob = (0..4)
             .map(|_| {
-                (0..tags.total_tags)
+                (0..tags.idx2tag.len())
                     .map(|_| random::<f32>())
                     .collect::<Vec<f32>>()
             })
@@ -187,7 +184,7 @@ mod test {
 
         let random_prob = (0..4)
             .map(|_| {
-                (0..tags.total_tags + 100) // wrong size!
+                (0..tags.idx2tag.len() + 100) // wrong size!
                     .map(|_| random::<f32>())
                     .collect::<Vec<f32>>()
             })

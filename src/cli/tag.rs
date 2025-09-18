@@ -17,7 +17,6 @@ pub const UNDERSCORE_TAGS: [&str; 19] = [
     "._.",
     "<o>_<o>",
     "<|>_<|>",
-    // ↓ deprecated
     "||_||",
     "(o)_(o)",
 ];
