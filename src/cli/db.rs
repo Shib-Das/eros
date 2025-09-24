@@ -58,9 +58,34 @@ impl Database {
         tags: &str,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT OR IGNORE INTO videos (filename, size, hash, tags) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR REPLACE INTO videos (filename, size, hash, tags) VALUES (?1, ?2, ?3, ?4)",
             params![filename, size, hash, tags],
         )?;
+        Ok(())
+    }
+
+    pub fn cleanup_video_tags(&self, hash: &str) -> Result<()> {
+        let tags_string: String = self.conn.query_row(
+            "SELECT tags FROM videos WHERE hash = ?1",
+            params![hash],
+            |row| row.get(0),
+        )?;
+
+        if tags_string.is_empty() {
+            return Ok(());
+        }
+
+        let mut tags: Vec<&str> = tags_string.split(", ").filter(|s| !s.is_empty()).collect();
+        tags.sort_unstable();
+        tags.dedup();
+        
+        let new_tags_string = tags.join(", ");
+
+        self.conn.execute(
+            "UPDATE videos SET tags = ?1 WHERE hash = ?2",
+            params![new_tags_string, hash],
+        )?;
+
         Ok(())
     }
 }

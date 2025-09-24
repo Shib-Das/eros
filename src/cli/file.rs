@@ -9,7 +9,6 @@ use crate::tag::fix_tag_underscore;
 
 /// Supported image extensions.
 pub const IMAGE_EXTENSIONS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
-pub const VIDEO_EXTENSIONS: [&str; 4] = ["mp4", "mkv", "webm", "avi"];
 
 /// Check if the path is a file or directory.
 pub async fn is_file<P: AsRef<Path>>(path: P) -> Result<bool> {
@@ -28,17 +27,6 @@ pub fn is_image(path: &str) -> Result<bool> {
     }
 }
 
-/// Check if the path is a video file.
-pub fn is_video(path: &str) -> Result<bool> {
-    match PathBuf::from(path).extension() {
-        Some(ext) => {
-            let ext = ext.to_string_lossy().to_lowercase();
-            Ok(VIDEO_EXTENSIONS.contains(&ext.as_str()))
-        }
-        None => Ok(false),
-    }
-}
-
 /// Get image files from a directory.
 pub async fn get_image_files(dir: &str) -> Result<Vec<PathBuf>> {
     let mut entries = fs::read_dir(dir).await?;
@@ -47,7 +35,7 @@ pub async fn get_image_files(dir: &str) -> Result<Vec<PathBuf>> {
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         let task = tokio::spawn(async move {
-            if is_image(path.to_str().unwrap()).unwrap() {
+            if is_image(path.to_str().unwrap()).unwrap_or(false) {
                 Some(path)
             } else {
                 None
@@ -59,12 +47,7 @@ pub async fn get_image_files(dir: &str) -> Result<Vec<PathBuf>> {
 
     let files = stream::iter(tasks)
         .buffer_unordered(16)
-        .filter_map(|result| async move {
-            match result {
-                Ok(Some(path)) => Some(path),
-                _ => None,
-            }
-        })
+        .filter_map(|result| async move { result.ok().flatten() })
         .collect()
         .await;
 
