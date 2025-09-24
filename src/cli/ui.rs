@@ -43,10 +43,10 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
             let text = match item {
                 MenuItem::Model => format!("Model: < {} >", config.model.to_string()),
                 MenuItem::InputPath => format!("Input Path: {}", config.input_path),
-                MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
                 MenuItem::Threshold => format!("Threshold: {}", config.threshold),
                 MenuItem::BatchSize => format!("Batch Size: {}", config.batch_size),
                 MenuItem::Start => "Start Processing".to_string(),
+                MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
             };
             let style = if i == app.menu_index() {
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -67,7 +67,6 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
 fn render_popup(f: &mut Frame, app: &App) {
     let popup_title = match app.currently_editing() {
         Some(MenuItem::InputPath) => "Edit Input Path",
-        Some(MenuItem::VideoPath) => "Edit Video Path",
         Some(MenuItem::Threshold) => "Edit Threshold",
         Some(MenuItem::BatchSize) => "Edit Batch Size",
         _ => "Editing",
@@ -118,7 +117,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-pub fn draw_progress(f: &mut Frame, total: u64, current: u64, current_file: &str, ram_usage: &str) {
+pub fn draw_progress(f: &mut Frame, total: u64, current: u64, _current_file: &str, _ram_usage: &str) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
@@ -149,17 +148,5 @@ pub fn draw_progress(f: &mut Frame, total: u64, current: u64, current_file: &str
         .percent(progress_percent)
         .label(format!("{}/{}", current, total));
 
-    let info_text = format!("Processing: {}\n{}", current_file, ram_usage);
-    let info = Paragraph::new(info_text)
-        .style(Style::default().fg(Color::White))
-        .alignment(Alignment::Center);
-
-    let progress_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([Constraint::Length(3), Constraint::Min(1)].as_ref())
-        .split(chunks[1]);
-
-    f.render_widget(gauge, progress_chunks[0]);
-    f.render_widget(info, progress_chunks[1]);
+    f.render_widget(gauge, chunks[1]);
 }

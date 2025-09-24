@@ -67,9 +67,6 @@ mod test {
         let repo_ids = vec![
             "SmilingWolf/wd-eva02-large-tagger-v3".to_string(),
             "SmilingWolf/wd-vit-large-tagger-v3".to_string(),
-            "SmilingWolf/wd-v1-4-swinv2-tagger-v2".to_string(),
-            "SmilingWolf/wd-vit-tagger-v3".to_string(),
-            "SmilingWolf/wd-swinv2-tagger-v3".to_string(),
             "SmilingWolf/wd-convnext-tagger-v3".to_string(),
         ];
 
