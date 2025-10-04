@@ -39,6 +39,7 @@ pub enum ProgressUpdate {
     Progress(f64),
     Error(String),
     Frame(DynamicImage),
+    ImageProcessed(PathBuf),
     Complete,
 }
 
@@ -93,6 +94,9 @@ pub struct App {
     pub suggestion_index: usize,
     pub show_ascii_art: bool,
     pub current_frame: Option<DynamicImage>,
+    pub logs: Vec<String>,
+    pub processed_image_paths: Vec<PathBuf>,
+    pub current_image_index: usize,
 }
 
 impl Default for App {
@@ -129,6 +133,9 @@ impl Default for App {
             suggestion_index: 0,
             show_ascii_art: false,
             current_frame: None,
+            logs: Vec::new(),
+            processed_image_paths: Vec::new(),
+            current_image_index: 0,
         }
     }
 }
@@ -149,10 +156,17 @@ impl App {
         if let Some(rx) = self.rx.as_mut() {
             if let Ok(update) = rx.try_recv() {
                 match update {
-                    ProgressUpdate::Message(msg) => self.status_message = msg,
+                    ProgressUpdate::Message(msg) => {
+                        self.status_message = msg.clone();
+                        self.logs.push(msg);
+                        if self.logs.len() > 100 {
+                            self.logs.remove(0);
+                        }
+                    }
                     ProgressUpdate::Progress(p) => self.progress = p,
                     ProgressUpdate::Error(e) => {
                         self.status_message = format!("Error: {}", e);
+                        self.logs.push(self.status_message.clone());
                         self.is_error = true;
                         self.current_screen = CurrentScreen::Finished;
                         self.rx = None;
@@ -160,8 +174,18 @@ impl App {
                     ProgressUpdate::Frame(frame) => {
                         self.current_frame = Some(frame);
                     }
+                    ProgressUpdate::ImageProcessed(path) => {
+                        let is_at_end = self.processed_image_paths.is_empty()
+                            || self.current_image_index == self.processed_image_paths.len() - 1;
+                        self.processed_image_paths.push(path);
+                        if is_at_end {
+                            self.current_image_index = self.processed_image_paths.len() - 1;
+                            self.update_current_frame_from_path();
+                        }
+                    }
                     ProgressUpdate::Complete => {
                         self.status_message = "Processing complete!".to_string();
+                        self.logs.push(self.status_message.clone());
                         self.is_error = false;
                         self.progress = 1.0;
                         self.current_screen = CurrentScreen::Finished;
@@ -177,8 +201,24 @@ impl App {
         if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
+                    // Global key handlers
+                    match key.code {
+                        KeyCode::Char('a') | KeyCode::Left => {
+                            self.scroll_left();
+                            return Ok(());
+                        }
+                        KeyCode::Char('d') | KeyCode::Right => {
+                            self.scroll_right();
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+
+                    // Screen-specific key handlers
                     match self.current_screen {
-                        CurrentScreen::SuggestingDirs => self.handle_suggesting_dirs_events(key.code),
+                        CurrentScreen::SuggestingDirs => {
+                            self.handle_suggesting_dirs_events(key.code)
+                        }
                         CurrentScreen::Main => self.handle_main_screen_events(key.code),
                         CurrentScreen::Editing => self.handle_editing_screen_events(key.code),
                         CurrentScreen::Processing if key.code == KeyCode::Char('q') => {
@@ -330,6 +370,29 @@ impl App {
         self.input_text.clear();
     }
 
+    fn scroll_left(&mut self) {
+        if !self.processed_image_paths.is_empty() {
+            self.current_image_index = self.current_image_index.saturating_sub(1);
+            self.update_current_frame_from_path();
+        }
+    }
+
+    fn scroll_right(&mut self) {
+        if !self.processed_image_paths.is_empty() {
+            self.current_image_index =
+                (self.current_image_index + 1).min(self.processed_image_paths.len() - 1);
+            self.update_current_frame_from_path();
+        }
+    }
+
+    fn update_current_frame_from_path(&mut self) {
+        if let Some(path) = self.processed_image_paths.get(self.current_image_index) {
+            if let Ok(img) = image::open(path) {
+                self.current_frame = Some(img);
+            }
+        }
+    }
+
     // Accessors
     pub fn menu_index(&self) -> usize {
         self.menu_index
@@ -470,7 +533,9 @@ async fn process_images(
             let img = image::open(&image_file)?;
             if show_ascii_art {
                 // We don't care if this fails, it just means the UI closed.
-                let _ = tx.send(ProgressUpdate::Frame(img.clone())).await;
+                let _ = tx
+                    .send(ProgressUpdate::ImageProcessed(image_file.clone()))
+                    .await;
             }
             let rating = rating_model.lock().unwrap().rate(&img)?;
             let result = pipe.lock().unwrap().predict(img, None)?;

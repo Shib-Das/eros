@@ -8,93 +8,61 @@ use ratatui::{
 };
 
 pub fn draw(f: &mut Frame, app: &App) {
-    // Dispatch rendering based on the current screen
-    match app.current_screen() {
-        CurrentScreen::SuggestingDirs => {
-            render_suggesting_dirs_screen(f, app);
-        }
-        CurrentScreen::Processing => {
-            render_processing_screen(f, app);
-        }
-        CurrentScreen::Finished => {
-            render_finished_screen(f, app);
-        }
-        _ => {
-            // Render the main layout for Main and Editing screens
-            let chunks = Layout::default()
-                .constraints([
-                    Constraint::Length(3), // Title
-                    Constraint::Min(0),    // Main content
-                    Constraint::Length(3), // Footer
-                ])
-                .split(f.area());
-
-            let title = Paragraph::new("Eros Image Tagger")
-                .style(Style::default().fg(Color::LightCyan))
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL));
-            f.render_widget(title, chunks[0]);
-
-            let main_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(chunks[1]);
-
-            render_menu(f, app, main_chunks[0]);
-
-            if app.show_ascii_art {
-                let art = if let Some(frame) = &app.current_frame {
-                    // Subtract border size from the area
-                    let inner_area = main_chunks[1].inner(Margin {
-                        vertical: 1,
-                        horizontal: 1,
-                    });
-                    ascii::create_ascii_art(frame, inner_area)
-                } else {
-                    "Waiting for image...".to_string()
-                };
-
-                let ascii_art_widget = Paragraph::new(art)
-                    .block(Block::default().borders(Borders::ALL).title("ASCII Art"))
-                    .alignment(Alignment::Center);
-                f.render_widget(ascii_art_widget, main_chunks[1]);
-            } else {
-                f.render_widget(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Preview (Enable ASCII Art in Menu)"),
-                    main_chunks[1],
-                );
-            }
-
-            let footer_text = "Use ↑/↓ or j/k to navigate, ↩ to select/edit, 'q' to quit.";
-            let footer = Paragraph::new(footer_text)
-                .style(Style::default().fg(Color::Gray))
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL));
-            f.render_widget(footer, chunks[2]);
-
-            if app.is_editing() {
-                render_popup(f, app);
-            }
-        }
-    }
-}
-
-fn render_suggesting_dirs_screen(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
+    let base_chunks = Layout::default()
         .constraints([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Main content
+            Constraint::Length(5), // Log view
             Constraint::Length(3), // Footer
         ])
         .split(f.area());
 
-    let title = Paragraph::new("Select Directories to Process")
+    let title = Paragraph::new("Eros Image Tagger")
         .style(Style::default().fg(Color::LightCyan))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
+    f.render_widget(title, base_chunks[0]);
+
+    // Dispatch rendering for the main content area
+    match app.current_screen() {
+        CurrentScreen::SuggestingDirs => {
+            render_suggesting_dirs_screen(f, app, base_chunks[1]);
+        }
+        CurrentScreen::Processing => {
+            render_processing_screen(f, app, base_chunks[1]);
+        }
+        CurrentScreen::Main | CurrentScreen::Editing => {
+            render_main_screen(f, app, base_chunks[1]);
+        }
+        CurrentScreen::Finished => {
+            // Render main screen in the background and finished popup on top
+            render_main_screen(f, app, base_chunks[1]);
+            render_finished_popup(f, app);
+        }
+        _ => {}
+    }
+
+    render_log(f, app, base_chunks[2]);
+
+    let footer_text =
+        "Use ↑/↓ or j/k to navigate, ↩ to select, 'q' to quit. Use 'a'/← and 'd'/→ to scroll images.";
+    let footer = Paragraph::new(footer_text)
+        .style(Style::default().fg(Color::Gray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(footer, base_chunks[3]);
+
+    if app.is_editing() {
+        render_editing_popup(f, app);
+    }
+}
+
+fn render_suggesting_dirs_screen(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .constraints([
+            Constraint::Min(0), // List
+        ])
+        .split(area);
 
     let items: Vec<ListItem> = app
         .suggested_dirs
@@ -121,14 +89,17 @@ fn render_suggesting_dirs_screen(f: &mut Frame, app: &App) {
         )
         .highlight_symbol(">> ");
 
-    f.render_widget(list, chunks[1]);
+    f.render_widget(list, chunks[0]);
+}
 
-    let footer_text = "Use ↑/↓ to navigate, <Space> to select/deselect, <Enter> to confirm.";
-    let footer = Paragraph::new(footer_text)
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(footer, chunks[2]);
+fn render_main_screen(f: &mut Frame, app: &App, area: Rect) {
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    render_menu(f, app, main_chunks[0]);
+    render_ascii_art(f, app, main_chunks[1]);
 }
 
 fn render_menu(f: &mut Frame, app: &App, area: Rect) {
@@ -165,7 +136,44 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(list, area);
 }
 
-fn render_popup(f: &mut Frame, app: &App) {
+fn render_ascii_art(f: &mut Frame, app: &App, area: Rect) {
+    if app.show_ascii_art {
+        let art = if let Some(frame) = &app.current_frame {
+            // Subtract border size from the area
+            let inner_area = area.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            });
+            ascii::create_ascii_art(frame, inner_area)
+        } else {
+            "Waiting for image...".to_string()
+        };
+
+        let title = if app.processed_image_paths.is_empty() {
+            "ASCII Art".to_string()
+        } else {
+            format!(
+                "ASCII Art - Image {}/{}",
+                app.current_image_index + 1,
+                app.processed_image_paths.len()
+            )
+        };
+
+        let ascii_art_widget = Paragraph::new(art)
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .alignment(Alignment::Center);
+        f.render_widget(ascii_art_widget, area);
+    } else {
+        f.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Preview (Enable ASCII Art in Menu)"),
+            area,
+        );
+    }
+}
+
+fn render_editing_popup(f: &mut Frame, app: &App) {
     let popup_title = match app.currently_editing() {
         Some(MenuItem::InputPath) => "Edit Input Path",
         Some(MenuItem::Threshold) => "Edit Threshold",
@@ -197,29 +205,21 @@ fn render_popup(f: &mut Frame, app: &App) {
     f.render_widget(help_text, popup_chunks[1]);
 }
 
-fn render_processing_screen(f: &mut Frame, app: &App) {
+fn render_processing_screen(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
-        .constraints([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Main content
-        ])
-        .split(f.area());
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
 
-    let title = Paragraph::new("Eros Image Tagger - Processing")
-        .style(Style::default().fg(Color::LightCyan))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    // A layout to center the gauge widget.
-    let vertical_chunks = Layout::default()
+    // Left side: Progress bar and status
+    let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(45),
-            Constraint::Length(3), // Height of the gauge
-            Constraint::Percentage(45),
+            Constraint::Percentage(45), // Spacer
+            Constraint::Length(3),      // Gauge
+            Constraint::Percentage(45), // Spacer
         ])
-        .split(chunks[1]);
+        .split(chunks[0]);
 
     let centered_area = Layout::default()
         .direction(Direction::Horizontal)
@@ -228,7 +228,7 @@ fn render_processing_screen(f: &mut Frame, app: &App) {
             Constraint::Percentage(80), // 80% width for gauge
             Constraint::Percentage(10), // 10% margin on right
         ])
-        .split(vertical_chunks[1])[1];
+        .split(left_chunks[1])[1];
 
     let label = format!("{} ({:.1}%)", &app.status_message, app.progress * 100.0);
 
@@ -244,30 +244,12 @@ fn render_processing_screen(f: &mut Frame, app: &App) {
         .label(label);
 
     f.render_widget(gauge, centered_area);
+
+    // Right side: ASCII Art
+    render_ascii_art(f, app, chunks[1]);
 }
 
-fn render_finished_screen(f: &mut Frame, app: &App) {
-    // Re-render the main screen in the background
-    let chunks = Layout::default()
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-    let title = Paragraph::new("Eros Image Tagger")
-        .style(Style::default().fg(Color::LightCyan))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-    render_menu(f, app, chunks[1]);
-    let footer = Paragraph::new("...")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(footer, chunks[2]);
-
-    // Render the popup on top
+fn render_finished_popup(f: &mut Frame, app: &App) {
     let (popup_title, title_color) = if app.is_error {
         ("Error", Color::Red)
     } else {
@@ -300,6 +282,19 @@ fn render_finished_screen(f: &mut Frame, app: &App) {
     let help_text = Paragraph::new("Press <Enter> to continue")
         .style(Style::default().fg(Color::LightYellow));
     f.render_widget(help_text, popup_chunks[1]);
+}
+
+fn render_log(f: &mut Frame, app: &App, area: Rect) {
+    let log_messages: Vec<ListItem> = app
+        .logs
+        .iter()
+        .map(|msg| ListItem::new(msg.as_str()))
+        .collect();
+
+    let logs_list = List::new(log_messages)
+        .block(Block::default().borders(Borders::ALL).title("Logs"));
+
+    f.render_widget(logs_list, area);
 }
 
 /// Helper function to create a centered rect using up certain percentage of the available rect `r`
