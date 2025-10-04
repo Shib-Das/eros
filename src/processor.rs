@@ -7,6 +7,7 @@
 use anyhow::Result;
 use image::{DynamicImage, Rgb, RgbImage};
 use ndarray::{Array, Axis, Ix4};
+use rayon::prelude::*;
 
 use crate::{
     config::{ModelConfig, PreprocessConfig},
@@ -19,8 +20,12 @@ pub trait ImageProcessor {
     fn process(&self, image: &DynamicImage) -> Result<Array<f32, Ix4>, TaggerError>;
 
     /// Processes a batch of images into a single 4D tensor.
-    fn process_batch(&self, images: Vec<&DynamicImage>) -> Result<Array<f32, Ix4>, TaggerError> {
-        let tensors: Result<Vec<_>, _> = images.into_iter().map(|img| self.process(img)).collect();
+    fn process_batch(&self, images: Vec<&DynamicImage>) -> Result<Array<f32, Ix4>, TaggerError>
+    where
+        Self: Sync,
+    {
+        let tensors: Result<Vec<_>, _> =
+            images.into_par_iter().map(|img| self.process(img)).collect();
         let tensors = tensors?;
 
         ndarray::concatenate(

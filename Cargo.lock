@@ -696,6 +696,7 @@ dependencies = [
  "ort",
  "rand 0.9.2",
  "ratatui",
+ "rayon",
  "reqwest",
  "rusqlite",
  "serde",

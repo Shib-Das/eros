@@ -32,7 +32,13 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
-            render_menu(f, app, chunks[1]);
+            let main_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chunks[1]);
+
+            render_menu(f, app, main_chunks[0]);
+            f.render_widget(Block::default().borders(Borders::ALL), main_chunks[1]);
 
             let footer_text = "Use ↑/↓ or j/k to navigate, ↩ to select/edit, 'q' to quit.";
             let footer = Paragraph::new(footer_text)
