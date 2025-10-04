@@ -12,6 +12,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use ndarray::{Array, Axis, Ix4};
+use num_cpus;
 use ort::{session::Session, value::Tensor, execution_providers::CPUExecutionProvider};
 
 #[cfg(feature = "cuda")]
@@ -87,13 +88,14 @@ impl TaggerModel {
         // Suppress verbose logging from ONNX Runtime
         let _ = tracing_subscriber::fmt::try_init();
 
-        let providers = devices
-            .into_iter()
-            .map(|device| match device {
+        let mut providers = Vec::new();
+        for device in devices {
+            let provider = match device {
                 Device::Cpu => CPUExecutionProvider::default().build(),
                 #[cfg(feature = "cuda")]
                 Device::Cuda(device_id) => CUDAExecutionProvider::default()
                     .with_device_id(device_id)
+                    .with_unified_memory(true)
                     .build(),
                 #[cfg(feature = "tensorrt")]
                 Device::TensorRT(device_id) => TensorRTExecutionProvider::default()
@@ -101,23 +103,27 @@ impl TaggerModel {
                     .build(),
                 #[cfg(feature = "coreml")]
                 Device::CoreML => CoreMLExecutionProvider::default().build(),
-            })
-            .collect::<Vec<_>>();
+            };
+            providers.push(provider);
+        }
 
         ort::init()
             .with_execution_providers(providers)
             .commit()
-            .map(|_| ())
-            .map_err(|e| TaggerError::Ort(e.to_string()))
+            .map_err(|e| TaggerError::Ort(e.to_string()))?;
+        Ok(())
     }
 
     /// Loads a model from a local file path.
     ///
     /// The path should point to a valid `.onnx` model file.
     pub fn load<P: AsRef<Path>>(model_path: P) -> Result<Self, TaggerError> {
+        let threads = num_cpus::get();
         let session = Session::builder()
-            .map_err(|e| TaggerError::Ort(e.to_string()))?
-            .commit_from_file(model_path.as_ref())
+            .and_then(|b| b.with_parallel_execution(true))
+            .and_then(|b| b.with_inter_threads(1))
+            .and_then(|b| b.with_intra_threads(threads))
+            .and_then(|b| b.commit_from_file(model_path.as_ref()))
             .map_err(|e| TaggerError::Ort(e.to_string()))?;
 
         let output_name = session
