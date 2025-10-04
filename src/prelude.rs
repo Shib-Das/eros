@@ -140,7 +140,8 @@ pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
 
                 if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
                     let img = image::open(path)?;
-                    let resized_img = img.thumbnail(size.0, size.1);
+                    let resized_img =
+                        img.resize_exact(size.0, size.1, image::imageops::FilterType::Triangle);
                     resized_img.save(path)?;
                 } else if VIDEO_EXTENSIONS.contains(&ext_lower.as_str()) {
                     let temp_path = path.with_extension("resized.mp4");
@@ -156,10 +157,7 @@ pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
 
 fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> anyhow::Result<()> {
     let (width, height) = size;
-    let vf_param = format!(
-        "scale=w={}:h={}:force_original_aspect_ratio=decrease",
-        width, height
-    );
+    let vf_param = format!("scale=w={}:h={}", width, height);
 
     let status = Command::new("ffmpeg")
         .arg("-i")
