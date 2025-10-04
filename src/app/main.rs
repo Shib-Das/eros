@@ -1,5 +1,6 @@
 mod app;
 mod args;
+mod ascii;
 mod db;
 mod file;
 mod tag;

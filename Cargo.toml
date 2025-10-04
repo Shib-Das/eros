@@ -38,11 +38,10 @@ indexmap = "2.7.1"
 futures = "0.3.31"
 ffmpeg-next = "8.0.0"
 num_cpus = "1.16.0"
-
 tokio = { version = "1.43.0", features = ["full"], optional = true }
 tokio-stream = { version = "0.1.17", optional = true }
 futures-batch = { version = "0.7.0", optional = true }
-ratatui = { version = "0.29.0", optional = true }
+ratatui = { version = "0.29.0", optional = true, features = ["macros"] }
 crossterm = { version = "0.29.0", optional = true }
 rusqlite = { version = "0.37.0", features = ["bundled"], optional = true }
 sha2 = { version = "0.10.8", optional = true }
