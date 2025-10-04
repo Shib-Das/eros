@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use image::DynamicImage;
 use ratatui::{backend::Backend, Terminal};
 use sha2::{Digest, Sha256};
 use std::{
@@ -37,6 +38,7 @@ pub enum ProgressUpdate {
     Message(String),
     Progress(f64),
     Error(String),
+    Frame(DynamicImage),
     Complete,
 }
 
@@ -48,6 +50,7 @@ pub struct AppConfig {
     pub video_path: String,
     pub threshold: f32,
     pub batch_size: usize,
+    pub show_ascii_art: bool,
 }
 
 /// Represents the different screens in the TUI.
@@ -69,6 +72,7 @@ pub enum MenuItem {
     VideoPath,
     Threshold,
     BatchSize,
+    ShowAsciiArt,
     Start,
 }
 
@@ -87,6 +91,8 @@ pub struct App {
     pub suggested_dirs: Vec<PathBuf>,
     pub selected_dirs: Vec<PathBuf>,
     pub suggestion_index: usize,
+    pub show_ascii_art: bool,
+    pub current_frame: Option<DynamicImage>,
 }
 
 impl Default for App {
@@ -99,6 +105,7 @@ impl Default for App {
                 video_path: "./videos".to_string(),
                 threshold: 0.5,
                 batch_size: 1,
+                show_ascii_art: false,
             },
             current_screen: CurrentScreen::SuggestingDirs,
             currently_editing: None,
@@ -108,6 +115,7 @@ impl Default for App {
                 MenuItem::VideoPath,
                 MenuItem::Threshold,
                 MenuItem::BatchSize,
+                MenuItem::ShowAsciiArt,
                 MenuItem::Start,
             ],
             menu_index: 0,
@@ -119,6 +127,8 @@ impl Default for App {
             suggested_dirs,
             selected_dirs: Vec::new(),
             suggestion_index: 0,
+            show_ascii_art: false,
+            current_frame: None,
         }
     }
 }
@@ -146,6 +156,9 @@ impl App {
                         self.is_error = true;
                         self.current_screen = CurrentScreen::Finished;
                         self.rx = None;
+                    }
+                    ProgressUpdate::Frame(frame) => {
+                        self.current_frame = Some(frame);
                     }
                     ProgressUpdate::Complete => {
                         self.status_message = "Processing complete!".to_string();
@@ -238,12 +251,14 @@ impl App {
     /// Handles the selection of a menu item.
     fn handle_menu_selection(&mut self) {
         let current_item = self.menu_items[self.menu_index];
-        if current_item == MenuItem::Start {
-            self.start_processing();
-        } else if current_item == MenuItem::Model {
-            self.config.model = self.config.model.next();
-        } else {
-            self.start_editing(current_item);
+        match current_item {
+            MenuItem::Start => self.start_processing(),
+            MenuItem::Model => self.config.model = self.config.model.next(),
+            MenuItem::ShowAsciiArt => {
+                self.show_ascii_art = !self.show_ascii_art;
+                self.config.show_ascii_art = self.show_ascii_art;
+            }
+            _ => self.start_editing(current_item),
         }
     }
 
@@ -347,8 +362,24 @@ async fn run_full_process(
 ) -> Result<()> {
     prepare_media_files(&selected_dirs, &tx).await?;
     let (pipe, rating_model, db) = initialize_pipeline_and_db(&config, &tx).await?;
-    process_images(&selected_dirs, &pipe, &rating_model, &db, &tx).await?;
-    process_videos(&selected_dirs, &pipe, &rating_model, &db, &tx).await?;
+    process_images(
+        &selected_dirs,
+        &pipe,
+        &rating_model,
+        &db,
+        &tx,
+        config.show_ascii_art,
+    )
+    .await?;
+    process_videos(
+        &selected_dirs,
+        &pipe,
+        &rating_model,
+        &db,
+        &tx,
+        config.show_ascii_art,
+    )
+    .await?;
     tx.send(ProgressUpdate::Complete).await?;
     Ok(())
 }
@@ -419,6 +450,7 @@ async fn process_images(
     rating_model: &Arc<Mutex<RatingModel>>,
     db: &Arc<Mutex<Database>>,
     tx: &mpsc::Sender<ProgressUpdate>,
+    show_ascii_art: bool,
 ) -> Result<()> {
     let mut image_files = Vec::new();
     for dir in selected_dirs {
@@ -436,6 +468,10 @@ async fn process_images(
         .await?;
         for (i, image_file) in image_files.into_iter().enumerate() {
             let img = image::open(&image_file)?;
+            if show_ascii_art {
+                // We don't care if this fails, it just means the UI closed.
+                let _ = tx.send(ProgressUpdate::Frame(img.clone())).await;
+            }
             let rating = rating_model.lock().unwrap().rate(&img)?;
             let result = pipe.lock().unwrap().predict(img, None)?;
             let simple_result = TaggingResultSimple::from(result);
@@ -466,6 +502,7 @@ async fn process_videos(
     rating_model: &Arc<Mutex<RatingModel>>,
     db: &Arc<Mutex<Database>>,
     tx: &mpsc::Sender<ProgressUpdate>,
+    show_ascii_art: bool,
 ) -> Result<()> {
     let mut video_files = Vec::new();
     for dir in selected_dirs {
@@ -482,7 +519,16 @@ async fn process_videos(
         )))
         .await?;
         for (i, video_file) in video_files.into_iter().enumerate() {
-            video::process_video(&video_file, pipe, rating_model, db, get_hash).await?;
+            video::process_video(
+                &video_file,
+                pipe,
+                rating_model,
+                db,
+                get_hash,
+                tx,
+                show_ascii_art,
+            )
+            .await?;
             tx.send(ProgressUpdate::Progress(
                 0.625 + 0.375 * (i + 1) as f64 / total_videos as f64,
             ))

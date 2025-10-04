@@ -1,4 +1,7 @@
-use crate::app::{App, CurrentScreen, MenuItem};
+use crate::{
+    app::{App, CurrentScreen, MenuItem},
+    ascii,
+};
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph},
@@ -38,7 +41,31 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .split(chunks[1]);
 
             render_menu(f, app, main_chunks[0]);
-            f.render_widget(Block::default().borders(Borders::ALL), main_chunks[1]);
+
+            if app.show_ascii_art {
+                let art = if let Some(frame) = &app.current_frame {
+                    // Subtract border size from the area
+                    let inner_area = main_chunks[1].inner(Margin {
+                        vertical: 1,
+                        horizontal: 1,
+                    });
+                    ascii::create_ascii_art(frame, inner_area)
+                } else {
+                    "Waiting for image...".to_string()
+                };
+
+                let ascii_art_widget = Paragraph::new(art)
+                    .block(Block::default().borders(Borders::ALL).title("ASCII Art"))
+                    .alignment(Alignment::Center);
+                f.render_widget(ascii_art_widget, main_chunks[1]);
+            } else {
+                f.render_widget(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Preview (Enable ASCII Art in Menu)"),
+                    main_chunks[1],
+                );
+            }
 
             let footer_text = "Use ↑/↓ or j/k to navigate, ↩ to select/edit, 'q' to quit.";
             let footer = Paragraph::new(footer_text)
@@ -116,6 +143,9 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
                 MenuItem::InputPath => format!("Input Path: {}", config.input_path),
                 MenuItem::Threshold => format!("Threshold: {}", config.threshold),
                 MenuItem::BatchSize => format!("Batch Size: {}", config.batch_size),
+                MenuItem::ShowAsciiArt => {
+                    format!("Show ASCII Art: < {} >", if app.show_ascii_art { "On" } else { "Off" })
+                }
                 MenuItem::Start => "Start Processing".to_string(),
                 MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
             };
