@@ -118,6 +118,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
                     format!("Show ASCII Art: < {} >", if app.show_ascii_art { "On" } else { "Off" })
                 }
                 MenuItem::Start => "Start Processing".to_string(),
+                MenuItem::CreateShrine => "Create Shrine".to_string(),
                 MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
             };
             let style = if i == app.menu_index() {
@@ -176,6 +177,7 @@ fn render_ascii_art(f: &mut Frame, app: &App, area: Rect) {
 fn render_editing_popup(f: &mut Frame, app: &App) {
     let popup_title = match app.currently_editing() {
         Some(MenuItem::InputPath) => "Edit Input Path",
+        Some(MenuItem::VideoPath) => "Edit Video Path",
         Some(MenuItem::Threshold) => "Edit Threshold",
         Some(MenuItem::BatchSize) => "Edit Batch Size",
         _ => "Editing",

@@ -21,7 +21,7 @@ use crate::{
     args::V3Model,
     db::Database,
     file::{self, TaggingResultSimple},
-    video,
+    shrine, video,
 };
 use eros::{
     pipeline::TaggingPipeline,
@@ -75,6 +75,7 @@ pub enum MenuItem {
     BatchSize,
     ShowAsciiArt,
     Start,
+    CreateShrine,
 }
 
 /// The main application struct, holding the state of the TUI.
@@ -121,6 +122,7 @@ impl Default for App {
                 MenuItem::BatchSize,
                 MenuItem::ShowAsciiArt,
                 MenuItem::Start,
+                MenuItem::CreateShrine,
             ],
             menu_index: 0,
             input_text: String::new(),
@@ -293,6 +295,7 @@ impl App {
         let current_item = self.menu_items[self.menu_index];
         match current_item {
             MenuItem::Start => self.start_processing(),
+            MenuItem::CreateShrine => self.start_shrine_creation(),
             MenuItem::Model => self.config.model = self.config.model.next(),
             MenuItem::ShowAsciiArt => {
                 self.show_ascii_art = !self.show_ascii_art;
@@ -316,6 +319,24 @@ impl App {
 
         tokio::spawn(async move {
             if let Err(e) = run_full_process(config, selected_dirs, tx.clone()).await {
+                let _ = tx.send(ProgressUpdate::Error(e.to_string())).await;
+            }
+        });
+    }
+
+    /// Starts the background shrine creation thread.
+    fn start_shrine_creation(&mut self) {
+        self.current_screen = CurrentScreen::Processing;
+        self.progress = 0.0;
+        self.status_message = "Starting shrine creation...".to_string();
+
+        let (tx, rx) = mpsc::channel(100);
+        self.rx = Some(rx);
+
+        let selected_dirs = self.selected_dirs.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = run_shrine_creation(selected_dirs, tx.clone()).await {
                 let _ = tx.send(ProgressUpdate::Error(e.to_string())).await;
             }
         });
@@ -415,6 +436,57 @@ impl App {
     pub fn current_screen(&self) -> &CurrentScreen {
         &self.current_screen
     }
+}
+
+/// Runs the shrine creation process.
+async fn run_shrine_creation(
+    selected_dirs: Vec<PathBuf>,
+    tx: mpsc::Sender<ProgressUpdate>,
+) -> Result<()> {
+    tx.send(ProgressUpdate::Message(
+        "Collecting files for shrine...".to_string(),
+    ))
+    .await?;
+
+    let mut all_files = Vec::new();
+    for dir in &selected_dirs {
+        if let Some(dir_str) = dir.to_str() {
+            all_files.extend(file::get_image_files(dir_str).await?);
+            all_files.extend(video::get_video_files(dir_str).await?);
+        }
+    }
+
+    if all_files.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No media files found to create a shrine."
+        ));
+    }
+
+    tx.send(ProgressUpdate::Message(format!(
+        "Found {} files. Creating shrine...",
+        all_files.len()
+    )))
+    .await?;
+
+    let db_path = Path::new("./data/victim.db");
+    if !db_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Database file not found. Please process files first."
+        ));
+    }
+
+    let output_path = Path::new("./shrine.shrine");
+    shrine::create_shrine(output_path, &all_files, db_path)?;
+    tx.send(ProgressUpdate::Progress(1.0)).await?;
+
+    tx.send(ProgressUpdate::Message(format!(
+        "Shrine created successfully at: {}",
+        output_path.display()
+    )))
+    .await?;
+
+    tx.send(ProgressUpdate::Complete).await?;
+    Ok(())
 }
 
 /// Runs the full media processing pipeline.

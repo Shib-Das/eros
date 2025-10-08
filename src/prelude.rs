@@ -1,5 +1,6 @@
 use anyhow::Result;
 use ffmpeg_next as ffmpeg;
+use image::GenericImageView;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -123,8 +124,6 @@ fn remux(from: &Path, to: &Path) -> Result<(), ffmpeg::Error> {
     Ok(())
 }
 
-use std::process::{Command, Stdio};
-
 pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
     for dir in selected_dirs {
         let entries: Vec<_> = WalkDir::new(dir)
@@ -140,44 +139,18 @@ pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
 
                 if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
                     let img = image::open(path)?;
-                    // FIX: Use thumbnail() which preserves aspect ratio, instead of resize_exact() which stretches.
-                    let resized_img = img.thumbnail(size.0, size.1); 
-                    resized_img.save(path)?;
-                } else if VIDEO_EXTENSIONS.contains(&ext_lower.as_str()) {
-                    let temp_path = path.with_extension("resized.mp4");
-                    resize_video(path, &temp_path, size)?;
-                    fs::remove_file(path)?;
-                    fs::rename(&temp_path, path.with_extension("mp4"))?;
+                    let (width, height) = img.dimensions();
+                    if width != size.0 || height != size.1 {
+                        let resized_img = img.resize_exact(
+                            size.0,
+                            size.1,
+                            image::imageops::FilterType::Lanczos3,
+                        );
+                        resized_img.save(path)?;
+                    }
                 }
             }
         }
     }
-    Ok(())
-}
-
-fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> anyhow::Result<()> {
-    let (width, height) = size;
-    // FIX: Add force_original_aspect_ratio=decrease to prevent stretching to square dimensions.
-    let vf_param = format!(
-        "scale=w={}:h={}:force_original_aspect_ratio=decrease", 
-        width, height
-    );
-
-    let status = Command::new("ffmpeg")
-        .arg("-i")
-        .arg(from)
-        .arg("-vf")
-        .arg(&vf_param)
-        .arg("-c:a")
-        .arg("copy")
-        .arg(to)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-
-    if !status.success() {
-        return Err(anyhow::anyhow!("ffmpeg failed to resize video"));
-    }
-
     Ok(())
 }

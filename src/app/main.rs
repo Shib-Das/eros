@@ -6,6 +6,7 @@ mod file;
 mod tag;
 mod ui;
 mod video;
+mod shrine;
 
 use anyhow::Result;
 use app::App;

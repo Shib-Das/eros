@@ -58,15 +58,5 @@ fn test_full_preprocessing_pipeline() {
     assert_eq!(resized_image.width(), 448);
     assert_eq!(resized_image.height(), 448);
 
-    // Check video dimensions
-    ffmpeg_next::init().unwrap();
-    let ictx = ffmpeg_next::format::input(&converted_video_path).unwrap();
-    let stream = ictx.streams().best(ffmpeg_next::media::Type::Video).unwrap();
-    let video = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())
-        .unwrap()
-        .decoder()
-        .video()
-        .unwrap();
-    assert_eq!(video.width(), 448);
-    assert_eq!(video.height(), 448);
+    // Video dimension check is removed as per user instruction to skip video resizing.
 }
