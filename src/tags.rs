@@ -1,6 +1,5 @@
-use crate::error::TaggerError;
 use crate::file::TagCSVFile;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use ndarray::{Array1, Array2};
 use serde::Deserialize;
@@ -61,67 +60,51 @@ pub struct LabelTags {
 
 impl LabelTags {
     /// Load from the local CSV file
-    pub fn load<P: AsRef<Path>>(csv_path: P) -> Result<Self, TaggerError> {
-        let mut reader =
-            csv::Reader::from_path(csv_path.as_ref()).map_err(|e| TaggerError::Tag(e.to_string()))?;
-        let headers = reader
-            .headers()
-            .map_err(|e| TaggerError::Tag(e.to_string()))?
-            .clone();
+    pub fn load<P: AsRef<Path>>(csv_path: P) -> Result<Self> {
+        let mut reader = csv::Reader::from_path(csv_path.as_ref())
+            .with_context(|| format!("Failed to read CSV file at {:?}", csv_path.as_ref()))?;
+        let headers = reader.headers()?.clone();
+        let records: Vec<_> = reader.records().collect::<Result<_, _>>()?;
 
-        let embedding_cols: Vec<usize> = headers
+        let embedding_cols: Vec<_> = headers
             .iter()
             .enumerate()
             .filter(|(_, h)| h.starts_with("embedding__"))
             .map(|(i, _)| i)
             .collect();
-        let has_embeddings = !embedding_cols.is_empty();
 
-        let mut label2tag = HashMap::new();
-        let mut idx2tag = HashMap::new();
-        let mut embeddings_vec = Vec::new();
+        let mut label2tag = HashMap::with_capacity(records.len());
+        let mut idx2tag = HashMap::with_capacity(records.len());
+        let mut embeddings_vec = Vec::with_capacity(records.len());
 
-        let records: Vec<_> = reader
-            .records()
-            .collect::<Result<_, _>>()
-            .map_err(|e| TaggerError::Tag(e.to_string()))?;
         for (i, record) in records.iter().enumerate() {
             let tag: Tag = record
                 .deserialize(Some(&headers))
-                .map_err(|e| TaggerError::Tag(e.to_string()))?;
-
+                .context("Failed to deserialize tag record")?;
             label2tag.insert(tag.name.clone(), tag.clone());
             idx2tag.insert(i, tag);
 
-            if has_embeddings {
-                let mut embedding_row = Vec::new();
-                for &col_idx in &embedding_cols {
-                    let val: f32 = record[col_idx]
-                        .parse()
-                        .map_err(|e: std::num::ParseFloatError| TaggerError::Tag(e.to_string()))?;
-                    embedding_row.push(val);
-                }
-                embeddings_vec.push(embedding_row);
+            if !embedding_cols.is_empty() {
+                let embedding_row: Result<Vec<f32>, _> = embedding_cols
+                    .iter()
+                    .map(|&col_idx| {
+                        record[col_idx]
+                            .parse()
+                            .with_context(|| format!("Failed to parse embedding value at column {}", col_idx))
+                    })
+                    .collect();
+                embeddings_vec.push(embedding_row?);
             }
         }
 
-        let embeddings = if has_embeddings {
+        let embeddings = if !embeddings_vec.is_empty() {
             let rows = embeddings_vec.len();
-            let cols = if rows > 0 {
-                embeddings_vec[0].len()
-            } else {
-                0
-            };
-            if cols > 0 {
-                let flat_embeddings: Vec<f32> = embeddings_vec.into_iter().flatten().collect();
-                Some(
-                    Array2::from_shape_vec((rows, cols), flat_embeddings).map_err(|e| {
-                        TaggerError::Tag(format!("Failed to create embedding array: {}", e))
-                    })?,
-                )
-            } else {
-                None
-            }
+            let cols = embeddings_vec[0].len();
+            let flat_embeddings: Vec<f32> = embeddings_vec.into_iter().flatten().collect();
+            Some(
+                Array2::from_shape_vec((rows, cols), flat_embeddings)
+                    .context("Failed to create embedding array")?,
+            )
         } else {
             None
         };
@@ -133,7 +116,7 @@ impl LabelTags {
         })
     }
 
-    pub async fn from_pretrained(repo_id: &str) -> Result<Self, TaggerError> {
+    pub async fn from_pretrained(repo_id: &str) -> Result<Self> {
         let csv_path = TagCSVFile::new(repo_id).get().await?;
         Self::load(csv_path)
     }
@@ -142,37 +125,37 @@ impl LabelTags {
     pub fn create_probality_pairs(
         &self,
         tensor: Vec<Vec<f32>>,
-    ) -> Result<Vec<IndexMap<String, f32>>, TaggerError> {
+    ) -> Result<Vec<IndexMap<String, f32>>> {
         tensor
-            .iter() // batch
+            .into_iter()
             .map(|probs| {
-                let probs_vec = if let Some(embeddings) = &self.embeddings {
-                    if probs.len() != embeddings.shape()[1] {
-                        return Err(TaggerError::Tag(format!(
-                            "Prediction feature size ({}) mismatch with embedding dimension ({})",
-                            probs.len(),
-                            embeddings.shape()[1]
-                        )));
-                    }
-                    let pred_array = Array1::from_vec(probs.clone());
-                    let similarities = embeddings.dot(&pred_array);
-                    similarities.to_vec()
-                } else {
-                    if probs.len() != self.idx2tag.len() {
-                        return Err(TaggerError::Tag(
-                            "Tags and probabilities length mismatch".to_string(),
-                        ));
-                    }
-                    probs.to_vec()
-                };
-
+                let probs_vec = self.get_probs_vec(probs)?;
                 Ok(probs_vec
-                    .iter()
+                    .into_iter()
                     .enumerate()
-                    .map(|(idx, prob)| (self.idx2tag.get(&idx).unwrap().name(), *prob))
-                    .collect::<IndexMap<String, f32>>())
+                    .map(|(idx, prob)| (self.idx2tag[&idx].name(), prob))
+                    .collect())
             })
             .collect()
+    }
+
+    fn get_probs_vec(&self, probs: Vec<f32>) -> Result<Vec<f32>> {
+        if let Some(embeddings) = &self.embeddings {
+            anyhow::ensure!(
+                probs.len() == embeddings.shape()[1],
+                "Prediction feature size ({}) mismatch with embedding dimension ({})",
+                probs.len(),
+                embeddings.shape()[1]
+            );
+            let pred_array = Array1::from_vec(probs);
+            Ok(embeddings.dot(&pred_array).to_vec())
+        } else {
+            anyhow::ensure!(
+                probs.len() == self.idx2tag.len(),
+                "Tags and probabilities length mismatch"
+            );
+            Ok(probs)
+        }
     }
 
     pub fn label2tag(&self) -> &HashMap<String, Tag> {
@@ -225,11 +208,9 @@ mod test {
 
         let result = tags.create_probality_pairs(probabilities);
         assert!(result.is_err());
-        match result.unwrap_err() {
-            TaggerError::Tag(msg) => {
-                assert_eq!(msg, "Tags and probabilities length mismatch");
-            }
-            _ => panic!("Expected TaggerError::Tag"),
-        }
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Tags and probabilities length mismatch"
+        );
     }
 }

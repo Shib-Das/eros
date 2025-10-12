@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ndarray::{Array, Axis, Ix4};
 use num_cpus;
 use ort::{session::Session, value::Tensor, execution_providers::CPUExecutionProvider};
@@ -24,7 +24,7 @@ use ort::execution_providers::TensorRTExecutionProvider;
 #[cfg(feature = "coreml")]
 use ort::execution_providers::CoreMLExecutionProvider;
 
-use crate::{error::TaggerError, file::TaggerModelFile};
+use crate::file::TaggerModelFile;
 
 /// Represents the execution device for the ONNX model.
 ///
@@ -84,53 +84,47 @@ impl TaggerModel {
     ///
     /// This function should be called once before creating any `TaggerModel` instances.
     /// It configures the global ONNX Runtime environment with the specified devices.
-    pub fn init(devices: Vec<Device>) -> Result<(), TaggerError> {
+    pub fn init(devices: Vec<Device>) -> Result<()> {
         // Suppress verbose logging from ONNX Runtime
         let _ = tracing_subscriber::fmt::try_init();
 
-        let mut providers = Vec::new();
-        for device in devices {
-            let provider = match device {
-                Device::Cpu => CPUExecutionProvider::default().build(),
-                #[cfg(feature = "cuda")]
-                Device::Cuda(device_id) => CUDAExecutionProvider::default()
-                    .with_device_id(device_id)
-                    .with_unified_memory(true)
-                    .build(),
-                #[cfg(feature = "tensorrt")]
-                Device::TensorRT(device_id) => TensorRTExecutionProvider::default()
-                    .with_device_id(device_id)
-                    .build(),
-                #[cfg(feature = "coreml")]
-                Device::CoreML => CoreMLExecutionProvider::default().build(),
-            };
-            providers.push(provider);
-        }
+        let providers: Vec<_> = devices.into_iter().map(|device| match device {
+            Device::Cpu => CPUExecutionProvider::default().build(),
+            #[cfg(feature = "cuda")]
+            Device::Cuda(device_id) => CUDAExecutionProvider::default()
+                .with_device_id(device_id)
+                .with_unified_memory(true)
+                .build(),
+            #[cfg(feature = "tensorrt")]
+            Device::TensorRT(device_id) => TensorRTExecutionProvider::default()
+                .with_device_id(device_id)
+                .build(),
+            #[cfg(feature = "coreml")]
+            Device::CoreML => CoreMLExecutionProvider::default().build(),
+        }).collect();
 
         ort::init()
             .with_execution_providers(providers)
-            .commit()
-            .map_err(|e| TaggerError::Ort(e.to_string()))?;
+            .commit()?;
         Ok(())
     }
 
     /// Loads a model from a local file path.
     ///
     /// The path should point to a valid `.onnx` model file.
-    pub fn load<P: AsRef<Path>>(model_path: P) -> Result<Self, TaggerError> {
+    pub fn load<P: AsRef<Path>>(model_path: P) -> Result<Self> {
         let threads = num_cpus::get();
-        let session = Session::builder()
-            .and_then(|b| b.with_parallel_execution(true))
-            .and_then(|b| b.with_inter_threads(1))
-            .and_then(|b| b.with_intra_threads(threads))
-            .and_then(|b| b.commit_from_file(model_path.as_ref()))
-            .map_err(|e| TaggerError::Ort(e.to_string()))?;
+        let session = Session::builder()?
+            .with_parallel_execution(true)?
+            .with_inter_threads(1)?
+            .with_intra_threads(threads)?
+            .commit_from_file(model_path.as_ref())?;
 
         let output_name = session
             .outputs
             .first()
             .map(|o| o.name.clone())
-            .ok_or_else(|| TaggerError::Ort("Model has no outputs".to_string()))?;
+            .context("Model has no outputs")?;
 
         Ok(Self {
             session,
@@ -141,7 +135,7 @@ impl TaggerModel {
     /// Loads a model from a Hugging Face repository.
     ///
     /// This will download the model file if it's not already cached.
-    pub async fn from_pretrained(repo_id: &str) -> Result<Self, TaggerError> {
+    pub async fn from_pretrained(repo_id: &str) -> Result<Self> {
         let model_path = TaggerModelFile::new(repo_id).get().await?;
         Self::load(&model_path)
     }
@@ -155,22 +149,22 @@ impl TaggerModel {
     /// # Returns
     ///
     /// A nested vector where each inner vector contains the prediction probabilities for one image.
-    pub fn predict(&mut self, input_tensor: Array<f32, Ix4>) -> Result<Vec<Vec<f32>>, TaggerError> {
+    pub fn predict(&mut self, input_tensor: Array<f32, Ix4>) -> Result<Vec<Vec<f32>>> {
         let input_tensor =
-            Tensor::from_array(input_tensor).map_err(|e| TaggerError::Ort(e.to_string()))?;
+            Tensor::from_array(input_tensor).context("Failed to create tensor from array")?;
 
         let outputs = self
             .session
             .run(ort::inputs!["input" => input_tensor])
-            .map_err(|e| TaggerError::Ort(e.to_string()))?;
+            .context("Failed to run model prediction")?;
 
         let preds = outputs[self.output_name.as_str()]
             .try_extract_array::<f32>()
-            .map_err(|e| TaggerError::Ort(e.to_string()))?;
+            .context("Failed to extract predictions from model output")?;
 
         let preds_vec = preds
             .axis_iter(Axis(0))
-            .map(|row| row.iter().copied().collect::<Vec<_>>())
+            .map(|row| row.iter().copied().collect())
             .collect();
 
         Ok(preds_vec)

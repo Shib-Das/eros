@@ -7,13 +7,12 @@
 //! The main components are `TaggingPipeline` for managing the workflow and `TaggingResult`
 //! for representing the output.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::DynamicImage;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::{
-    error::TaggerError,
     processor::{ImagePreprocessor, ImageProcessor},
     tagger::{Device, TaggerModel},
     tags::{LabelTags, TagCategory},
@@ -84,30 +83,26 @@ impl TaggingPipeline {
         model_name: &str,
         devices: Vec<Device>,
         progress_callback: Option<ProgressCallback>,
-    ) -> Result<Self, TaggerError> {
-        if let Some(cb) = &progress_callback {
-            cb(0.0, "Initializing Tagger...".to_string());
-        }
+    ) -> Result<Self> {
+        let progress_callback = progress_callback.as_ref();
+
+        Self::report_progress(progress_callback, 0.0, "Initializing Tagger...");
         TaggerModel::init(devices)?;
 
-        if let Some(cb) = &progress_callback {
-            cb(0.2, format!("Downloading model: {}", model_name));
-        }
+        Self::report_progress(
+            progress_callback,
+            0.2,
+            &format!("Downloading model: {}", model_name),
+        );
         let model = TaggerModel::from_pretrained(model_name).await?;
 
-        if let Some(cb) = &progress_callback {
-            cb(0.5, "Setting up preprocessor...".to_string());
-        }
+        Self::report_progress(progress_callback, 0.5, "Setting up preprocessor...");
         let preprocessor = ImagePreprocessor::from_pretrained(model_name).await?;
 
-        if let Some(cb) = &progress_callback {
-            cb(0.8, "Downloading tags...".to_string());
-        }
+        Self::report_progress(progress_callback, 0.8, "Downloading tags...");
         let tags = LabelTags::from_pretrained(model_name).await?;
 
-        if let Some(cb) = &progress_callback {
-            cb(1.0, "Pipeline ready.".to_string());
-        }
+        Self::report_progress(progress_callback, 1.0, "Pipeline ready.");
 
         Ok(Self {
             model,
@@ -117,23 +112,31 @@ impl TaggingPipeline {
         })
     }
 
+    /// Reports progress using the provided callback.
+    fn report_progress(
+        progress_callback: Option<&ProgressCallback>,
+        progress: f32,
+        message: &str,
+    ) {
+        if let Some(cb) = progress_callback {
+            cb(progress, message.to_string());
+        }
+    }
+
     /// Filters and sorts tags for a specific category from a set of predictions.
-    fn get_tags_for_category(
-        &self,
-        pairs: &Prediction,
-        category: TagCategory,
-    ) -> Prediction {
+    fn get_tags_for_category(&self, pairs: &Prediction, category: TagCategory) -> Prediction {
         pairs
             .iter()
             .filter(|(tag, &prob)| {
-                self.tags
-                    .label2tag()
-                    .get(*tag)
-                    .map_or(false, |t| t.category() == category)
-                    && prob >= self.threshold
+                prob >= self.threshold
+                    && self
+                        .tags
+                        .label2tag()
+                        .get(*tag)
+                        .map_or(false, |t| t.category() == category)
             })
-            .map(|(tag, prob)| (tag.clone(), *prob))
-            .sorted_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
+            .sorted_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(tag, &prob)| (tag.clone(), prob))
             .collect()
     }
 
@@ -142,11 +145,11 @@ impl TaggingPipeline {
         &mut self,
         image: DynamicImage,
         progress_callback: Option<ProgressCallback>,
-    ) -> Result<TaggingResult, TaggerError> {
+    ) -> Result<TaggingResult> {
         let mut results = self.predict_batch(vec![&image], progress_callback)?;
-        results.pop().ok_or_else(|| {
-            TaggerError::Pipeline("Prediction batch returned no results for a single image".to_string())
-        })
+        results
+            .pop()
+            .context("Prediction batch returned no results for a single image")
     }
 
     /// Predicts tags for a batch of images.
@@ -154,20 +157,15 @@ impl TaggingPipeline {
         &mut self,
         images: Vec<&DynamicImage>,
         progress_callback: Option<ProgressCallback>,
-    ) -> Result<Vec<TaggingResult>, TaggerError> {
-        if let Some(cb) = &progress_callback {
-            cb(0.0, "Preprocessing images...".to_string());
-        }
+    ) -> Result<Vec<TaggingResult>> {
+        let progress_callback = progress_callback.as_ref();
+        Self::report_progress(progress_callback, 0.0, "Preprocessing images...");
         let tensor = self.preprocessor.process_batch(images)?;
 
-        if let Some(cb) = &progress_callback {
-            cb(0.3, "Running model prediction...".to_string());
-        }
+        Self::report_progress(progress_callback, 0.3, "Running model prediction...");
         let probs = self.model.predict(tensor)?;
 
-        if let Some(cb) = &progress_callback {
-            cb(0.6, "Processing results...".to_string());
-        }
+        Self::report_progress(progress_callback, 0.6, "Processing results...");
         let pairs_batch = self.tags.create_probality_pairs(probs)?;
 
         let results = pairs_batch
@@ -180,9 +178,7 @@ impl TaggingPipeline {
             })
             .collect();
 
-        if let Some(cb) = &progress_callback {
-            cb(1.0, "Prediction complete.".to_string());
-        }
+        Self::report_progress(progress_callback, 1.0, "Prediction complete.");
 
         Ok(results)
     }

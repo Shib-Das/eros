@@ -1,5 +1,4 @@
-use crate::error::TaggerError;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::{
     fs::{self, File},
     io::Write,
@@ -8,31 +7,33 @@ use std::{
 
 const MODEL_ROOT: &str = "models";
 
-pub async fn download_file(url: &str, dest_path: &Path) -> Result<(), TaggerError> {
+pub async fn download_file(url: &str, dest_path: &Path) -> Result<()> {
     if let Some(parent) = dest_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| TaggerError::Io(format!("Failed to create model directory: {}", e)))?;
+        fs::create_dir_all(parent).context("Failed to create model directory")?;
     }
 
     let response = reqwest::get(url)
         .await
-        .map_err(|e| TaggerError::Network(e.to_string()))?;
+        .with_context(|| format!("Failed to download file from {}", url))?;
 
-    if !response.status().is_success() {
-        return Err(TaggerError::Network(format!(
-            "Failed to download file: {} ({})",
-            url,
-            response.status()
-        )));
-    }
+    anyhow::ensure!(
+        response.status().is_success(),
+        "Failed to download file: {} ({})",
+        url,
+        response.status()
+    );
 
     let mut dest =
-        File::create(&dest_path).map_err(|e| TaggerError::Io(format!("Failed to create file: {}", e)))?;
+        File::create(&dest_path).with_context(|| format!("Failed to create file at {:?}", dest_path))?;
 
     let mut response = response;
-    while let Some(chunk) = response.chunk().await.map_err(|e| TaggerError::Network(e.to_string()))? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("Failed to read chunk from response")?
+    {
         dest.write_all(&chunk)
-            .map_err(|e| TaggerError::Io(format!("Failed to write to file: {}", e)))?;
+            .with_context(|| format!("Failed to write to file at {:?}", dest_path))?;
     }
 
     Ok(())
@@ -42,7 +43,7 @@ fn get_file_path(repo_id: &str, file_name: &str) -> PathBuf {
     PathBuf::from(MODEL_ROOT).join(repo_id).join(file_name)
 }
 
-pub async fn get(repo_id: &str, file_path: &str) -> Result<PathBuf, TaggerError> {
+pub async fn get(repo_id: &str, file_path: &str) -> Result<PathBuf> {
     let dest_path = get_file_path(repo_id, file_path);
     if dest_path.exists() {
         return Ok(dest_path);
@@ -72,7 +73,7 @@ impl TaggerModelFile {
         }
     }
 
-    pub async fn get(&self) -> Result<PathBuf, TaggerError> {
+    pub async fn get(&self) -> Result<PathBuf> {
         get(&self.repo_id, &self.model_path).await
     }
 }
@@ -91,7 +92,7 @@ impl TagCSVFile {
         }
     }
 
-    pub async fn get(&self) -> Result<PathBuf, TaggerError> {
+    pub async fn get(&self) -> Result<PathBuf> {
         get(&self.repo_id, &self.csv_path).await
     }
 }
@@ -109,7 +110,7 @@ impl ConfigFile {
         }
     }
 
-    pub async fn get(&self) -> Result<PathBuf, TaggerError> {
+    pub async fn get(&self) -> Result<PathBuf> {
         get(&self.repo_id, &self.config_path).await
     }
 }
@@ -127,7 +128,7 @@ impl PreprocessFile {
         }
     }
 
-    pub async fn get(&self) -> Result<PathBuf, TaggerError> {
+    pub async fn get(&self) -> Result<PathBuf> {
         get(&self.repo_id, &self.preprocess_path).await
     }
 }
@@ -142,19 +143,19 @@ pub struct RatingConfigFile;
 pub struct RatingPreprocessorConfigFile;
 
 impl RatingModelFile {
-    pub async fn get() -> Result<PathBuf, TaggerError> {
+    pub async fn get() -> Result<PathBuf> {
         get(RATING_MODEL_REPO, "onnx/model.onnx").await
     }
 }
 
 impl RatingConfigFile {
-    pub async fn get() -> Result<PathBuf, TaggerError> {
+    pub async fn get() -> Result<PathBuf> {
         get(RATING_MODEL_REPO, "onnx/config.json").await
     }
 }
 
 impl RatingPreprocessorConfigFile {
-    pub async fn get() -> Result<PathBuf, TaggerError> {
+    pub async fn get() -> Result<PathBuf> {
         get(RATING_MODEL_REPO, "onnx/preprocessor_config.json").await
     }
 }
