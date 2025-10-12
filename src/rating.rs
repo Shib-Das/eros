@@ -9,7 +9,7 @@
 //! The main components are `RatingModel` for managing the rating process and `Rating`
 //! for representing the classification result.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::DynamicImage;
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},
@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::{
-    error::TaggerError,
     file::{RatingConfigFile, RatingModelFile, RatingPreprocessorConfigFile},
     processor::{ImagePreprocessor, ImageProcessor},
 };
@@ -34,11 +33,11 @@ pub enum Rating {
 
 impl Rating {
     /// Creates a new `Rating` from a label string.
-    fn from_label(label: &str) -> Result<Self, TaggerError> {
+    fn from_label(label: &str) -> Result<Self> {
         match label {
             "nsfw" => Ok(Rating::Nsfw),
             "sfw" => Ok(Rating::Sfw),
-            _ => Err(TaggerError::Rating(format!("Unknown rating label: {}", label))),
+            _ => anyhow::bail!("Unknown rating label: {}", label),
         }
     }
 
@@ -58,9 +57,12 @@ struct RatingModelConfig {
 
 impl RatingModelConfig {
     /// Loads the configuration from a JSON file.
-    async fn from_json(path: PathBuf) -> Result<Self, TaggerError> {
-        let content = tokio::fs::read_to_string(path).await?;
-        let config: RatingModelConfig = serde_json::from_str(&content)?;
+    async fn from_json(path: PathBuf) -> Result<Self> {
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .with_context(|| format!("Failed to read rating model config at {:?}", path))?;
+        let config: RatingModelConfig = serde_json::from_str(&content)
+            .with_context(|| "Failed to deserialize rating model config")?;
         Ok(config)
     }
 }
@@ -81,9 +83,12 @@ struct Size {
 
 impl RatingPreprocessorConfig {
     /// Loads the configuration from a JSON file.
-    async fn from_json(path: PathBuf) -> Result<Self, TaggerError> {
-        let content = tokio::fs::read_to_string(path).await?;
-        let config: RatingPreprocessorConfig = serde_json::from_str(&content)?;
+    async fn from_json(path: PathBuf) -> Result<Self> {
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .with_context(|| format!("Failed to read rating preprocessor config at {:?}", path))?;
+        let config: RatingPreprocessorConfig = serde_json::from_str(&content)
+            .with_context(|| "Failed to deserialize rating preprocessor config")?;
         Ok(config)
     }
 }
@@ -100,7 +105,7 @@ pub struct RatingModel {
 
 impl RatingModel {
     /// Creates a new `RatingModel`.
-    pub async fn new() -> Result<Self, TaggerError> {
+    pub async fn new() -> Result<Self> {
         let model_path = RatingModelFile::get().await?;
         let config_path = RatingConfigFile::get().await?;
         let preprocessor_config_path = RatingPreprocessorConfigFile::get().await?;
@@ -113,7 +118,8 @@ impl RatingModel {
         let input_name = session.inputs[0].name.clone();
         let output_name = session.outputs[0].name.clone();
 
-        let preprocessor_config = RatingPreprocessorConfig::from_json(preprocessor_config_path).await?;
+        let preprocessor_config =
+            RatingPreprocessorConfig::from_json(preprocessor_config_path).await?;
         let preprocessor = ImagePreprocessor::new(
             preprocessor_config.size.height,
             preprocessor_config.size.width,
@@ -134,7 +140,7 @@ impl RatingModel {
     }
 
     /// Rates a single image.
-    pub fn rate(&mut self, image: &DynamicImage) -> Result<Rating, TaggerError> {
+    pub fn rate(&mut self, image: &DynamicImage) -> Result<Rating> {
         let tensor = self.preprocessor.process(image)?;
         let value = Value::from_array(tensor)?;
         let outputs = self
@@ -149,11 +155,13 @@ impl RatingModel {
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(i, _)| i)
-            .unwrap();
+            .context("Failed to find argmax of probabilities")?;
 
-        let label = self.config.id2label.get(&argmax.to_string()).ok_or_else(|| {
-            TaggerError::Rating(format!("Label not found for index: {}", argmax))
-        })?;
+        let label = self
+            .config
+            .id2label
+            .get(&argmax.to_string())
+            .with_context(|| format!("Label not found for index: {}", argmax))?;
 
         Rating::from_label(label)
     }

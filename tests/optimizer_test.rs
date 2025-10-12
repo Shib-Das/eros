@@ -6,8 +6,8 @@ use tempfile::tempdir;
 
 mod common;
 
-#[test]
-fn test_optimize_video_reduces_size() -> Result<()> {
+#[tokio::test]
+async fn test_optimize_video_reduces_size() -> Result<()> {
     common::setup();
 
     let temp_dir = tempdir()?;
@@ -18,7 +18,7 @@ fn test_optimize_video_reduces_size() -> Result<()> {
     let original_size = fs::metadata(&test_video_path)?.len();
 
     let dirs = vec![temp_dir.path().to_path_buf()];
-    optimizer::optimize_videos_in_dirs(&dirs)?;
+    optimizer::optimize_media_in_dirs(&dirs).await?;
 
     let optimized_size = fs::metadata(&test_video_path)?.len();
 
@@ -33,8 +33,8 @@ fn test_optimize_video_reduces_size() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_optimize_image_reduces_size() -> Result<()> {
+#[tokio::test]
+async fn test_optimize_image_reduces_size() -> Result<()> {
     common::setup();
 
     let temp_dir = tempdir()?;
@@ -45,7 +45,7 @@ fn test_optimize_image_reduces_size() -> Result<()> {
     let original_size = fs::metadata(&test_image_path)?.len();
 
     let dirs = vec![temp_dir.path().to_path_buf()];
-    optimizer::optimize_images_in_dirs(&dirs)?;
+    optimizer::optimize_media_in_dirs(&dirs).await?;
 
     let optimized_size = fs::metadata(&test_image_path)?.len();
 

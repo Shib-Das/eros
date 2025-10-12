@@ -1,45 +1,43 @@
+//! # Eros
+//!
+//! A comprehensive, terminal-based application for processing and tagging media files.
+//!
+//! This application provides a TUI for selecting directories, configuring processing options,
+//! and monitoring the progress of media file processing. It uses the `eros` library to
+//! perform the actual tagging and optimization of images and videos.
+
 mod app;
 mod args;
 mod ascii;
 mod db;
 mod file;
 mod tag;
+mod tui;
 mod ui;
 mod video;
 
 use anyhow::Result;
 use app::App;
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use ffmpeg_next as ffmpeg;
-use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
 
+/// The main entry point for the `eros` TUI application.
+///
+/// This function initializes the application, sets up the terminal, runs the main application loop,
+/// and restores the terminal to its original state upon completion.
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize the `ffmpeg` library.
     ffmpeg::init()?;
-    // Setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
 
-    // Create app and run it
+    // Set up the terminal for the TUI.
+    let mut terminal = tui::setup_terminal()?;
+
+    // Create a new `App` instance and run the application.
     let mut app = App::default();
     app.run(&mut terminal).await?;
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    // Restore the terminal to its original state.
+    tui::restore_terminal(&mut terminal)?;
 
     Ok(())
 }
