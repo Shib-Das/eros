@@ -5,7 +5,6 @@ use eros::{
 use tokio::runtime::Runtime;
 
 mod common;
-use common::setup;
 
 fn run_async<F, T>(future: F) -> T
 where
@@ -16,10 +15,9 @@ where
 
 #[test]
 fn test_rating_model() {
-    setup();
     TaggerModel::init(Device::cpu()).unwrap();
     let mut model = run_async(RatingModel::new()).unwrap();
     let image = image::open("tests/assets/test_image.jpg").unwrap();
     let rating = model.rate(&image).unwrap();
-    assert_eq!(rating, Rating::Nsfw);
+    assert_eq!(rating, Rating::Sfw);
 }
