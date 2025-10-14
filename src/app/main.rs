@@ -11,6 +11,7 @@ mod args;
 mod ascii;
 mod core;
 mod db;
+mod deduplicate;
 mod file;
 mod tag;
 mod tui;

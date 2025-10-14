@@ -126,7 +126,7 @@ pub async fn process_video(
 }
 
 /// Extracts frames from a video at a 3-second interval.
-fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
+pub fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
     ffmpeg_next::init().unwrap();
     let mut ictx = ffmpeg_next::format::input(&video_path)?;
     let input = ictx
