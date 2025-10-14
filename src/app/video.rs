@@ -1,4 +1,8 @@
-use crate::{app::ProgressUpdate, db::Database, file::TaggingResultSimple};
+use crate::{
+    app::ProgressUpdate,
+    db::Database,
+    file::{TaggingResultSimple, TaggingResultSimpleTags},
+};
 use anyhow::Result;
 use eros::{pipeline::TaggingPipeline, rating::RatingModel};
 use futures::stream::{self, StreamExt};
@@ -56,16 +60,15 @@ pub async fn process_video(
     video_path: &Path,
     pipe: &Arc<Mutex<TaggingPipeline>>,
     rating_model: &Arc<Mutex<RatingModel>>,
-    db: &Arc<Mutex<Database>>,
     get_hash_fn: impl Fn(&Path) -> Result<String>,
     tx: &mpsc::Sender<ProgressUpdate>,
     show_ascii_art: bool,
-) -> Result<()> {
+) -> Result<TaggingResultSimple> {
     // Extract frames every 3 seconds
     let frame_images = extract_frames(video_path)?;
 
     if frame_images.is_empty() {
-        return Ok(());
+        anyhow::bail!("No frames extracted from video");
     }
 
     let mut all_tags = Vec::new();
@@ -75,7 +78,7 @@ pub async fn process_video(
         if show_ascii_art {
             if tx.send(ProgressUpdate::Frame(frame_image.clone())).await.is_err() {
                 // UI receiver has been dropped, so we can stop.
-                return Ok(());
+                anyhow::bail!("UI closed");
             }
         }
 
@@ -88,10 +91,17 @@ pub async fn process_video(
         }
 
         let result = pipe.lock().unwrap().predict(frame_image, None)?;
-        let simple_result = TaggingResultSimple::from(result);
-        if !simple_result.tags.is_empty() {
-            all_tags.extend(simple_result.tags.split(", ").map(|s| s.to_string()));
-        }
+        let character_tags = result
+            .character
+            .keys()
+            .map(|tag| super::tag::fix_tag_underscore(tag));
+        all_tags.extend(character_tags);
+
+        let general_tags = result
+            .general
+            .keys()
+            .map(|tag| super::tag::fix_tag_underscore(tag));
+        all_tags.extend(general_tags);
     }
 
     // Save the concatenated tags to the database
@@ -99,19 +109,20 @@ pub async fn process_video(
     let hash = get_hash_fn(video_path)?;
     let size = fs::metadata(video_path)?.len();
 
-    let db_lock = db.lock().unwrap();
-    db_lock.save_video_tags(
-        video_path.to_str().unwrap(),
+    let tagger_result = TaggingResultSimple {
+        filename: video_path.to_str().unwrap().to_string(),
         size,
-        &hash,
-        &tags_string,
-        overall_rating,
-    )?;
+        hash,
+        tags: tags_string,
+        rating: overall_rating.to_string(),
+        tagger: TaggingResultSimpleTags {
+            rating: overall_rating.to_string(),
+            character: Vec::new(),
+            general: all_tags,
+        },
+    };
 
-    // Clean up the database by removing duplicate tags
-    db_lock.cleanup_video_tags(&hash)?;
-
-    Ok(())
+    Ok(tagger_result)
 }
 
 /// Extracts frames from a video at a 3-second interval.

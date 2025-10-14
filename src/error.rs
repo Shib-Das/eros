@@ -1,10 +1,30 @@
-//! # Error Handling
-//!
-//! This module defines the custom error type for the `eros` library.
-//!
-//! The `TaggerError` enum represents all possible errors that can occur
-//! within the library, providing a unified and consistent error-handling mechanism.
-//! It uses the `thiserror` crate to derive the `Error` trait and provide
-//! descriptive error messages.
+use thiserror::Error;
 
-pub type TaggerError = anyhow::Error;
+#[derive(Error, Debug)]
+pub enum ErosError {
+    #[error("I/O error: {0}")]
+    IO(#[from] std::io::Error),
+
+    #[error("Database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
+    #[error("HTTP request error: {0}")]
+    Http(#[from] reqwest::Error),
+
+    #[error("Image processing error: {0}")]
+    Image(#[from] image::ImageError),
+
+    #[error("ONNX runtime error: {0}")]
+    Ort(#[from] ort::Error),
+
+    #[error("Optimizer error: {0}")]
+    Optimizer(String),
+
+    #[error("Configuration error: {0}")]
+    Config(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+}
+
+pub type Result<T> = std::result::Result<T, ErosError>;

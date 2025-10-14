@@ -144,6 +144,7 @@ async fn process_images(
             total_images
         )))
         .await?;
+        let mut results = Vec::new();
         for (i, image_file) in image_files.into_iter().enumerate() {
             let img = image::open(&image_file)?;
             if show_ascii_art {
@@ -154,23 +155,24 @@ async fn process_images(
             }
             let rating = rating_model.lock().unwrap().rate(&img)?;
             let result = pipe.lock().unwrap().predict(img, None)?;
-            let simple_result = TaggingResultSimple::from(result);
             let hash = get_hash(&image_file)?;
             let size = fs::metadata(&image_file)?.len();
             if let Some(path_str) = image_file.to_str() {
-                db.lock().unwrap().save_image_tags(
-                    path_str,
+                let simple_result = TaggingResultSimple::from((
+                    result,
+                    path_str.to_string(),
                     size,
-                    &hash,
-                    &simple_result.tags,
-                    rating.as_str(),
-                )?;
+                    hash,
+                    rating.to_string(),
+                ));
+                results.push(simple_result);
             }
             tx.send(ProgressUpdate::Progress(
                 0.25 + 0.375 * (i + 1) as f64 / total_images as f64,
             ))
             .await?;
         }
+        db.lock().unwrap().save_image_tags_batch(&results)?;
     }
     Ok(())
 }
@@ -198,22 +200,26 @@ async fn process_videos(
             total_videos
         )))
         .await?;
+        let mut results = Vec::new();
         for (i, video_file) in video_files.into_iter().enumerate() {
-            video::process_video(
+            if let Ok(result) = video::process_video(
                 &video_file,
                 pipe,
                 rating_model,
-                db,
                 get_hash,
                 tx,
                 show_ascii_art,
             )
-            .await?;
+            .await
+            {
+                results.push(result);
+            }
             tx.send(ProgressUpdate::Progress(
                 0.625 + 0.375 * (i + 1) as f64 / total_videos as f64,
             ))
             .await?;
         }
+        db.lock().unwrap().save_video_tags_batch(&results)?;
     }
     Ok(())
 }

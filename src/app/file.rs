@@ -57,7 +57,11 @@ pub struct TaggingResultSimpleTags {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct TaggingResultSimple {
+    pub filename: String,
+    pub size: u64,
+    pub hash: String,
     pub tags: String,
+    pub rating: String,
     pub tagger: TaggingResultSimpleTags,
 }
 
@@ -82,8 +86,10 @@ impl From<TaggingResult> for TaggingResultSimpleTags {
     }
 }
 
-impl From<TaggingResult> for TaggingResultSimple {
-    fn from(result: TaggingResult) -> Self {
+impl From<(TaggingResult, String, u64, String, String)> for TaggingResultSimple {
+    fn from(
+        (result, filename, size, hash, rating): (TaggingResult, String, u64, String, String),
+    ) -> Self {
         let mut tags = result.character.keys().cloned().collect::<Vec<String>>();
         tags.extend(result.general.keys().cloned().collect::<Vec<String>>());
 
@@ -94,7 +100,11 @@ impl From<TaggingResult> for TaggingResultSimple {
             .join(", ");
 
         Self {
+            filename,
+            size,
+            hash,
             tags,
+            rating,
             tagger: TaggingResultSimpleTags::from(result),
         }
     }
