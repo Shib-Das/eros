@@ -1,6 +1,7 @@
 pub mod app;
 pub mod args;
 pub mod ascii;
+pub mod core;
 pub mod db;
 pub mod file;
 pub mod tag;
