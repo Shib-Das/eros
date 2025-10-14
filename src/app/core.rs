@@ -23,6 +23,7 @@ use eros::{
 };
 
 use super::app::ProgressUpdate;
+use super::deduplicate;
 
 /// Runs the full media processing pipeline.
 pub async fn run_full_process(
@@ -30,6 +31,10 @@ pub async fn run_full_process(
     selected_dirs: Vec<PathBuf>,
     tx: mpsc::Sender<ProgressUpdate>,
 ) -> Result<()> {
+    deduplicate::remove_duplicate_images(&selected_dirs, &tx).await?;
+    tx.send(ProgressUpdate::Progress(0.02)).await?;
+    deduplicate::remove_duplicate_videos(&selected_dirs, &tx).await?;
+    tx.send(ProgressUpdate::Progress(0.04)).await?;
     prepare_media_files(&selected_dirs, &tx).await?;
     let (pipe, rating_model, db) = initialize_pipeline_and_db(&config, &tx).await?;
     process_images(
@@ -248,4 +253,55 @@ pub struct AppConfig {
     pub threshold: f32,
     pub batch_size: usize,
     pub show_ascii_art: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::deduplicate::remove_duplicate_images;
+    use image::{DynamicImage, Rgb, RgbImage};
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_remove_duplicate_images_integration() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let dir_path = temp_dir.path().to_path_buf();
+
+        // 1. Create test images
+        let original_path = dir_path.join("a_original.png");
+        let original_img =
+            DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, Rgb([80, 120, 160])));
+        original_img.save(&original_path)?;
+
+        let duplicate_path = dir_path.join("b_duplicate.png");
+        original_img.save(&duplicate_path)?;
+
+        let similar_path = dir_path.join("c_similar.png");
+        let mut similar_img = original_img.to_rgb8();
+        similar_img.put_pixel(50, 50, Rgb([81, 121, 161]));
+        DynamicImage::ImageRgb8(similar_img).save(&similar_path)?;
+
+        let different_path = dir_path.join("d_different.png");
+        let different_img =
+            DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, Rgb([200, 220, 250])));
+        different_img.save(&different_path)?;
+
+        // 2. Run the deduplication function
+        let (tx, mut rx) = mpsc::channel(100);
+        let selected_dirs = vec![dir_path];
+
+        tokio::spawn(async move {
+            while let Some(_) = rx.recv().await {}
+        });
+
+        remove_duplicate_images(&selected_dirs, &tx).await?;
+
+        // 3. Assert the results
+        assert!(original_path.exists(), "Original image should not be removed.");
+        assert!(!duplicate_path.exists(), "Exact duplicate should have been removed.");
+        assert!(!similar_path.exists(), "Similar image should have been removed.");
+        assert!(different_path.exists(), "Different image should not be removed.");
+
+        Ok(())
+    }
 }
