@@ -246,7 +246,11 @@ fn setup_streams(
             enc.set_height(dec.height());
             enc.set_width(dec.width());
             enc.set_format(ffmpeg::format::Pixel::YUV420P);
-            enc.set_time_base(istream.time_base());
+            let mut time_base = istream.time_base();
+            if time_base.1 > 65535 {
+                time_base = ffmpeg::Rational::new(1, 30000);
+            }
+            enc.set_time_base(time_base);
             if istream.avg_frame_rate() > ffmpeg::Rational::new(0, 1) {
                 enc.set_frame_rate(Some(istream.avg_frame_rate()));
             }
