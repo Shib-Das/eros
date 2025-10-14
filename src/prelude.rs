@@ -1,4 +1,4 @@
-use anyhow::Result;
+pub use crate::error::{ErosError, Result};
 use ffmpeg_next as ffmpeg;
 use std::{
     fs,
@@ -94,21 +94,21 @@ pub fn convert_and_strip_metadata(selected_dirs: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn remux(from: &Path, to: &Path) -> Result<(), ffmpeg::Error> {
-    let mut ictx = ffmpeg::format::input(&from)?;
-    let mut octx = ffmpeg::format::output_as(&to, "mp4")?;
+fn remux(from: &Path, to: &Path) -> Result<()> {
+    let mut ictx = ffmpeg::format::input(&from).map_err(|e| ErosError::Optimizer(e.to_string()))?;
+    let mut octx = ffmpeg::format::output_as(&to, "mp4").map_err(|e| ErosError::Optimizer(e.to_string()))?;
 
     octx.set_metadata(Default::default());
 
     let mut stream_mapping = vec![0; ictx.nb_streams() as usize];
     for in_stream in ictx.streams() {
-        let mut out_stream = octx.add_stream(None)?;
+        let mut out_stream = octx.add_stream(None).map_err(|e| ErosError::Optimizer(e.to_string()))?;
         out_stream.set_parameters(in_stream.parameters());
         out_stream.set_metadata(Default::default());
         stream_mapping[in_stream.index()] = out_stream.index();
     }
 
-    octx.write_header()?;
+    octx.write_header().map_err(|e| ErosError::Optimizer(e.to_string()))?;
 
     for (stream, mut packet) in ictx.packets() {
         let out_stream_index = stream_mapping[stream.index()];
@@ -116,10 +116,10 @@ fn remux(from: &Path, to: &Path) -> Result<(), ffmpeg::Error> {
 
         packet.rescale_ts(stream.time_base(), out_stream.time_base());
         packet.set_stream(out_stream_index);
-        packet.write_interleaved(&mut octx)?;
+        packet.write_interleaved(&mut octx).map_err(|e| ErosError::Optimizer(e.to_string()))?;
     }
 
-    octx.write_trailer()?;
+    octx.write_trailer().map_err(|e| ErosError::Optimizer(e.to_string()))?;
     Ok(())
 }
 
@@ -154,7 +154,7 @@ pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
     Ok(())
 }
 
-fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> anyhow::Result<()> {
+fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> Result<()> {
     let (width, height) = size;
     let vf_param = format!("scale={}:{}", width, height);
 
@@ -171,7 +171,7 @@ fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> anyhow::Result<()> 
         .status()?;
 
     if !status.success() {
-        return Err(anyhow::anyhow!("ffmpeg failed to resize video"));
+        return Err(ErosError::Optimizer("ffmpeg failed to resize video".to_string()));
     }
 
     Ok(())

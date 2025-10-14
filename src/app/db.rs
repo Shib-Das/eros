@@ -2,6 +2,8 @@ use anyhow::Result;
 use rusqlite::{params, Connection};
 use std::path::Path;
 
+use super::file::TaggingResultSimple;
+
 pub struct Database {
     conn: Connection,
 }
@@ -38,8 +40,20 @@ impl Database {
         Ok(())
     }
 
+    pub fn save_image_tags_batch(&mut self, results: &[TaggingResultSimple]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for result in results {
+            tx.execute(
+                "INSERT OR REPLACE INTO images (filename, size, hash, tags, rating) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![result.filename, result.size, result.hash, result.tags, result.rating],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn save_image_tags(
-    &self,
+    &mut self,
     filename: &str,
     size: u64,
     hash: &str,
@@ -53,8 +67,20 @@ impl Database {
     Ok(())
 }
 
+    pub fn save_video_tags_batch(&mut self, results: &[TaggingResultSimple]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for result in results {
+            tx.execute(
+                "INSERT OR REPLACE INTO videos (filename, size, hash, tags, rating) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![result.filename, result.size, result.hash, result.tags, result.rating],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn save_video_tags(
-        &self,
+        &mut self,
         filename: &str,
         size: u64,
         hash: &str,
@@ -68,7 +94,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn cleanup_video_tags(&self, hash: &str) -> Result<()> {
+    pub fn cleanup_video_tags(&mut self, hash: &str) -> Result<()> {
         let tags_string: String = self.conn.query_row(
             "SELECT tags FROM videos WHERE hash = ?1",
             params![hash],
