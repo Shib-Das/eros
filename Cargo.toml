@@ -16,7 +16,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
-cli = ["tokio", "tokio-stream", "futures-batch", "ratatui", "crossterm", "rusqlite", "sha2"]
+cli = ["tokio", "tokio-stream", "futures-batch", "ratatui", "crossterm", "rusqlite", "sha2", "clap"]
 
 cuda = ["ort/cuda"]
 tensorrt = ["ort/tensorrt"]

@@ -1,3 +1,26 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Process media files in a specified directory
+    Process {
+        /// The path to the directory containing media files to process
+        #[arg(short, long)]
+        path: String,
+
+        /// The confidence threshold for tagging
+        #[arg(short, long, default_value_t = 0.35)]
+        threshold: f32,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum V3Model {
     VitLarge,
