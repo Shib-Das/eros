@@ -185,17 +185,14 @@ fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> Result<()> {
         .set_time_base(output_time_base);
 
     // Encoder setup
-    let encoder_ctx = ffmpeg::codec::context::Context::from_parameters(
-        octx.stream(output_stream_index)
-            .expect("Stream not found")
-            .parameters(),
-    )?;
-    let mut enc: ffmpeg::codec::encoder::video::Video = encoder_ctx.encoder().video()?;
+    let mut enc = ffmpeg::codec::context::Context::new_with_codec(codec)
+        .encoder()
+        .video()?;
 
     // Configure encoder
     enc.set_width(size.0);
     enc.set_height(size.1);
-    enc.set_format(decoder.format());
+    enc.set_format(ffmpeg::format::Pixel::YUV420P);
     enc.set_frame_rate(Some(fps));
     enc.set_time_base(output_time_base);
     enc.set_bit_rate(2_000_000);
@@ -206,9 +203,9 @@ fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> Result<()> {
     opts.set("crf", "23");
 
     // Open encoder
-    let mut opened_enc = enc.open_with(opts)?;
+    let mut opened_enc = enc.open_as_with(codec, opts)?;
 
-    // Short-lived mut borrow for setting parameters
+    // Copy parameters from the opened encoder to the output stream
     octx.stream_mut(output_stream_index)
         .expect("Stream not found")
         .set_parameters(&opened_enc);
