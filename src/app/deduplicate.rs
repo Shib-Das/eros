@@ -68,40 +68,63 @@ if image_files.len() < 2 {
  return Ok(());
  }
 
-let mut fingerprints = HashMap::new();
- for path in &image_files {
- if let Ok(image) = image::open(path) {
- fingerprints.insert(path.clone(), calculate_fingerprint(&image));
- }
- }
+    let mut fingerprints = HashMap::new();
+    for path in &image_files {
+        if let Ok(image) = image::open(path) {
+            let fingerprint = calculate_fingerprint(&image);
+            fingerprints
+                .entry(fingerprint)
+                .or_insert_with(Vec::new)
+                .push(path.clone());
+        }
+    }
 
-let mut duplicates_to_remove = HashSet::new();
- for i in 0..image_files.len() {
- for j in (i + 1)..image_files.len() {
- let path1 = &image_files[i];
- let path2 = &image_files[j];
+    let mut duplicates_to_remove = HashSet::new();
+    let hashes: Vec<_> = fingerprints.keys().collect();
 
-if duplicates_to_remove.contains(path1) || duplicates_to_remove.contains(path2) {
- continue;
- }
+    for i in 0..hashes.len() {
+        // Handle exact duplicates within the same hash group
+        let paths = &fingerprints[hashes[i]];
+        if paths.len() > 1 {
+            for path_to_remove in paths.iter().skip(1) {
+                if !duplicates_to_remove.contains(path_to_remove) {
+                    duplicates_to_remove.insert(path_to_remove.clone());
+                    let message = format!(
+                        "Duplicate found: {:?} is identical to {:?}. Removing.",
+                        path_to_remove.file_name().unwrap(),
+                        paths[0].file_name().unwrap()
+                    );
+                    tx.send(ProgressUpdate::Message(message)).await?;
+                }
+            }
+        }
 
-if let (Some(&hash1), Some(&hash2)) = (fingerprints.get(path1), fingerprints.get(path2)) {
- let distance = hamming_distance(hash1, hash2);
- // 90% similarity is a Hamming distance of <= 6 for a 64-bit hash.
- if distance <= 6 {
- duplicates_to_remove.insert(path2.clone());
- let similarity = 100.0 * (1.0 - (distance as f64 / 64.0));
- let message = format!(
- "Duplicate found: {:?} is {:.1}% similar to {:?}. Removing.",
- path2.file_name().unwrap(),
- similarity,
- path1.file_name().unwrap()
- );
- tx.send(ProgressUpdate::Message(message)).await?;
- }
- }
- }
- }
+        // Handle near-duplicates across different hash groups
+        for j in (i + 1)..hashes.len() {
+            let hash1 = hashes[i];
+            let hash2 = hashes[j];
+
+            if hamming_distance(*hash1, *hash2) <= 6 {
+                let paths1 = &fingerprints[hash1];
+                let paths2 = &fingerprints[hash2];
+
+                for path2 in paths2 {
+                    if !duplicates_to_remove.contains(path2) {
+                        duplicates_to_remove.insert(path2.clone());
+                        let similarity =
+                            100.0 * (1.0 - (hamming_distance(*hash1, *hash2) as f64 / 64.0));
+                        let message = format!(
+                            "Duplicate found: {:?} is {:.1}% similar to {:?}. Removing.",
+                            path2.file_name().unwrap(),
+                            similarity,
+                            paths1[0].file_name().unwrap()
+                        );
+                        tx.send(ProgressUpdate::Message(message)).await?;
+                    }
+                }
+            }
+        }
+    }
 
 for file_path in duplicates_to_remove {
  if fs::remove_file(&file_path).is_ok() {

@@ -3,10 +3,10 @@ use crate::{
     db::Database,
     file::{TaggingResultSimple, TaggingResultSimpleTags},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use eros::{pipeline::TaggingPipeline, rating::RatingModel};
 use futures::stream::{self, StreamExt};
-use image::DynamicImage;
+use image::{DynamicImage, GrayImage};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -125,7 +125,7 @@ pub async fn process_video(
     Ok(tagger_result)
 }
 
-/// Extracts frames from a video at a 3-second interval.
+/// Extracts frames from a video based on scene changes.
 pub fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
     ffmpeg_next::init().unwrap();
     let mut ictx = ffmpeg_next::format::input(&video_path)?;
@@ -134,14 +134,9 @@ pub fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
         .best(ffmpeg_next::media::Type::Video)
         .ok_or(ffmpeg_next::Error::StreamNotFound)?;
     let video_stream_index = input.index();
-    let frame_rate = input.avg_frame_rate();
-    let frame_interval = (frame_rate.0 as f64 / frame_rate.1 as f64 * 3.0).round() as i64;
 
-    if frame_interval == 0 {
-        return Err(anyhow::anyhow!("Invalid frame interval for video."));
-    }
-
-    let context_decoder = ffmpeg_next::codec::context::Context::from_parameters(input.parameters())?;
+    let context_decoder =
+        ffmpeg_next::codec::context::Context::from_parameters(input.parameters())?;
     let mut decoder = context_decoder.decoder().video()?;
     let mut scaler = ffmpeg_next::software::scaling::context::Context::get(
         decoder.format(),
@@ -153,45 +148,51 @@ pub fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
         ffmpeg_next::software::scaling::flag::Flags::BILINEAR,
     )?;
 
-    let mut frame_count = 0i64;
     let mut extracted_frames = Vec::new();
+    let mut last_grayscale_frame: Option<GrayImage> = None;
 
     for (stream, packet) in ictx.packets() {
         if stream.index() == video_stream_index {
             decoder.send_packet(&packet)?;
             let mut decoded = ffmpeg_next::util::frame::video::Video::empty();
             while decoder.receive_frame(&mut decoded).is_ok() {
-                if frame_count % frame_interval == 0 {
-                    let mut rgb_frame = ffmpeg_next::util::frame::video::Video::empty();
-                    scaler.run(&decoded, &mut rgb_frame)?;
+                let mut rgb_frame = ffmpeg_next::util::frame::video::Video::empty();
+                scaler.run(&decoded, &mut rgb_frame)?;
 
-                    let width = rgb_frame.width() as usize;
-                    let height = rgb_frame.height() as usize;
-                    let stride = rgb_frame.stride(0) as usize;
-                    let data = rgb_frame.data(0);
+                let width = rgb_frame.width();
+                let height = rgb_frame.height();
+                let data = rgb_frame.data(0).to_vec();
 
-                    let mut image_data = Vec::with_capacity(width * height * 3);
-                    if stride == width * 3 {
-                        image_data.extend_from_slice(data);
-                    } else {
-                        for y in 0..height {
-                            let start = y * stride;
-                            let end = start + width * 3;
-                            image_data.extend_from_slice(&data[start..end]);
-                        }
-                    }
+                let image_buffer =
+                    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width, height, data)
+                        .context("Failed to create image buffer")?;
+                let dynamic_image = DynamicImage::ImageRgb8(image_buffer);
+                let grayscale_frame = dynamic_image.to_luma8();
 
-                    if let Some(image_buffer) = image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(
-                        width as u32,
-                        height as u32,
-                        image_data,
-                    ) {
-                        extracted_frames.push(DynamicImage::ImageRgb8(image_buffer));
-                    }
+                let should_extract = if let Some(last_frame) = &last_grayscale_frame {
+                    const THRESHOLD: f64 = 0.1;
+                    let diff = frame_difference(last_frame, &grayscale_frame);
+                    diff > THRESHOLD
+                } else {
+                    true
+                };
+
+                if should_extract {
+                    extracted_frames.push(dynamic_image);
+                    last_grayscale_frame = Some(grayscale_frame);
                 }
-                frame_count += 1;
             }
         }
     }
     Ok(extracted_frames)
+}
+
+/// Calculates the mean absolute difference between two grayscale frames.
+fn frame_difference(frame1: &GrayImage, frame2: &GrayImage) -> f64 {
+    let diff: f64 = frame1
+        .pixels()
+        .zip(frame2.pixels())
+        .map(|(p1, p2)| (p1[0] as f64 - p2[0] as f64).abs())
+        .sum();
+    diff / (frame1.width() * frame1.height()) as f64
 }
