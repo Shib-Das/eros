@@ -185,7 +185,7 @@ fn resize_video(from: &Path, to: &Path, size: (u32, u32)) -> Result<()> {
         .set_time_base(output_time_base);
 
     // Encoder setup
-    let mut encoder_ctx = ffmpeg::codec::context::Context::from_parameters(
+    let encoder_ctx = ffmpeg::codec::context::Context::from_parameters(
         octx.stream(output_stream_index)
             .expect("Stream not found")
             .parameters(),
