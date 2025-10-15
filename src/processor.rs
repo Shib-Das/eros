@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, Rgb, RgbImage};
-use ndarray::{Array, Axis, Ix4};
+use ndarray::{Array, Array3, Axis, Ix4};
 use rayon::prelude::*;
 
 use crate::config::{ModelConfig, PreprocessConfig};
@@ -124,35 +124,37 @@ impl ImagePreprocessor {
 
     /// Normalizes the pixel values and arranges them in the required tensor format.
     fn normalize_and_to_tensor(&self, image: &RgbImage) -> Array<f32, Ix4> {
-        let mut tensor = if self.bgr {
-            // NHWC layout for older models
-            Array::zeros((self.height as usize, self.width as usize, 3))
-        } else {
-            // NCHW layout for newer models
-            Array::zeros((3, self.height as usize, self.width as usize))
-        };
+        // Convert the image to an ndarray Array3
+        let image_data = image.as_raw();
+        let array = Array3::from_shape_vec(
+            (self.height as usize, self.width as usize, 3),
+            image_data.iter().map(|&x| x as f32 / 255.0).collect(),
+        )
+        .expect("Failed to create ndarray from image");
 
-        for (x, y, pixel) in image.enumerate_pixels() {
-            let [r, g, b] = pixel.0;
+        // Create mean and std arrays for broadcasting
+        let mean = Array3::from_shape_vec(
+            (1, 1, 3),
+            self.mean.clone(),
+        )
+        .expect("Failed to create mean array");
 
-            let r_norm = (r as f32 / 255.0 - self.mean[0]) / self.std[0];
-            let g_norm = (g as f32 / 255.0 - self.mean[1]) / self.std[1];
-            let b_norm = (b as f32 / 255.0 - self.mean[2]) / self.std[2];
+        let std = Array3::from_shape_vec(
+            (1, 1, 3),
+            self.std.clone(),
+        )
+        .expect("Failed to create std array");
 
-            if self.bgr {
-                // NHWC layout
-                tensor[[y as usize, x as usize, 0]] = r_norm;
-                tensor[[y as usize, x as usize, 1]] = g_norm;
-                tensor[[y as usize, x as usize, 2]] = b_norm;
-            } else {
-                // NCHW layout
-                tensor[[0, y as usize, x as usize]] = r_norm;
-                tensor[[1, y as usize, x as usize]] = g_norm;
-                tensor[[2, y as usize, x as usize]] = b_norm;
-            }
+        // Normalize the array using broadcasting
+        let mut normalized_array = (array - mean) / std;
+
+        // Permute the axes if needed (from HWC to CHW for NCHW layout)
+        if !self.bgr {
+            normalized_array = normalized_array.permuted_axes([2, 0, 1]).to_owned();
         }
 
-        tensor.insert_axis(Axis(0))
+        // Add the batch dimension (N)
+        normalized_array.insert_axis(Axis(0))
     }
 }
 
