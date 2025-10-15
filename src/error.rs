@@ -20,6 +20,9 @@ pub enum ErosError {
     #[error("Optimizer error: {0}")]
     Optimizer(String),
 
+    #[error("FFmpeg error: {0}")]
+    Ffmpeg(#[from] ffmpeg_next::Error),
+
     #[error("Configuration error: {0}")]
     Config(String),
 
