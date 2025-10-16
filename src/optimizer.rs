@@ -234,52 +234,56 @@ fn setup_streams(
         .contains(ffmpeg::format::flag::Flags::GLOBAL_HEADER);
 
     for (istream_index, istream) in ictx.streams().enumerate() {
+        let istream_params = istream.parameters();
+        let mut ostream = octx.add_stream(None)?;
+        ostream.set_parameters(istream_params.clone());
+
         if Some(istream_index) == best_video_stream_index {
-            let mut ostream = octx.add_stream(ffmpeg::encoder::find(ffmpeg::codec::Id::MPEG4))?;
-            let mut enc = ffmpeg::codec::context::Context::from_parameters(ostream.parameters())?
-                .encoder()
-                .video()?;
+            let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::H264)
+                .context("Failed to find H.264 encoder")?;
             let dec = ffmpeg::codec::context::Context::from_parameters(istream.parameters())?
                 .decoder()
                 .video()?;
 
-            enc.set_height(dec.height());
-            enc.set_width(dec.width());
-            enc.set_format(ffmpeg::format::Pixel::YUV420P);
+            let mut encoder = ffmpeg::codec::context::Context::new_with_codec(codec)
+                .encoder()
+                .video()?;
+            encoder.set_height(dec.height());
+            encoder.set_width(dec.width());
+            encoder.set_format(ffmpeg::format::Pixel::YUV420P);
             let mut time_base = istream.time_base();
             if time_base.1 > 65535 {
                 time_base = ffmpeg::Rational::new(1, 30000);
             }
-            enc.set_time_base(time_base);
-            if istream.avg_frame_rate() > ffmpeg::Rational::new(0, 1) {
-                enc.set_frame_rate(Some(istream.avg_frame_rate()));
-            }
-
+            encoder.set_time_base(time_base);
             if format_requires_global_header {
-                enc.set_flags(ffmpeg::codec::flag::Flags::GLOBAL_HEADER);
+                encoder.set_flags(ffmpeg::codec::flag::Flags::GLOBAL_HEADER);
             }
 
-            let opened_encoder = enc.open_as(ffmpeg::codec::Id::MPEG4)?;
-            ostream.set_parameters(&opened_encoder);
+            if istream.avg_frame_rate() > ffmpeg::Rational::new(0, 1) {
+                encoder.set_frame_rate(Some(istream.avg_frame_rate()));
+            }
+
+            let mut opts = ffmpeg::Dictionary::new();
+            opts.set("preset", "medium");
+            opts.set("crf", "23");
+
+            let enc = encoder.open_with(opts)?;
+            ostream.set_parameters(&enc);
 
             let scaler = ffmpeg::software::scaling::Context::get(
                 dec.format(),
                 dec.width(),
                 dec.height(),
-                opened_encoder.format(),
-                opened_encoder.width(),
-                opened_encoder.height(),
+                enc.format(),
+                enc.width(),
+                enc.height(),
                 ffmpeg::software::scaling::flag::Flags::BILINEAR,
             )?;
-
-            stream_mapping[istream_index] = ostream.index();
-            video_encoder = Some((opened_encoder, dec));
+            video_encoder = Some((enc, dec));
             sws_context = Some(scaler);
-        } else {
-            let mut ostream = octx.add_stream(None)?;
-            ostream.set_parameters(istream.parameters());
-            stream_mapping[istream_index] = ostream.index();
         }
+        stream_mapping[istream_index] = ostream.index();
     }
 
     Ok((stream_mapping, video_encoder, sws_context))
@@ -310,7 +314,13 @@ pub async fn optimize_media_in_dirs(dirs: &[PathBuf]) -> Result<()> {
                 optimize_image(path).with_context(|| format!("Failed to optimize image: {:?}", path))
             }
             "mp4" | "mov" | "avi" | "mkv" | "webm" => {
-                optimize_video(path).with_context(|| format!("Failed to optimize video: {:?}", path))
+                match optimize_video(path) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        eprintln!("Warning: Failed to optimize video {:?}: {}", path, e);
+                        Ok(()) // Continue processing other files
+                    }
+                }
             }
             _ => Ok(()),
         }
