@@ -47,8 +47,11 @@ def tag(
 ):
     """Tags images in a directory."""
     app = ErosApp(model_path, db_path, batch_size)
-    app.tag_images(input_path, threshold)
-    click.echo("Tagging complete.")
+    try:
+        app.tag_images(input_path, threshold)
+        click.echo("Tagging complete.")
+    finally:
+        app.close()
 
 if __name__ == "__main__":
     cli()

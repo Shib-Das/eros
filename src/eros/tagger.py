@@ -4,11 +4,13 @@ from typing import List, Dict
 from .error import TaggerError
 from .processor import preprocess_image
 
+from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException, NoSuchFile
+
 class Tagger:
     def __init__(self, model_path: str, batch_size: int = 1):
         try:
             self.session = ort.InferenceSession(model_path)
-        except ort.OrtError as e:
+        except (RuntimeException, NoSuchFile) as e:
             raise TaggerError(f"Error loading ONNX model: {e}") from e
         self.batch_size = batch_size
 
