@@ -8,13 +8,19 @@ class Database:
         self.db_path = db_path
         self.conn: Optional[sqlite3.Connection] = None
 
-    def connect(self) -> None:
-        """Connects to the database and creates tables if they don't exist."""
+    def __enter__(self):
+        """Connects to the database."""
         try:
             self.conn = sqlite3.connect(self.db_path)
             self._create_tables()
+            return self
         except sqlite3.Error as e:
             raise DatabaseError(f"Error connecting to database: {e}") from e
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Closes the database connection."""
+        if self.conn:
+            self.conn.close()
 
     def _create_tables(self) -> None:
         """Creates the necessary tables for the application."""
@@ -83,8 +89,3 @@ class Database:
             return {row[0]: row[1] for row in rows} if rows else None
         except sqlite3.Error as e:
             raise DatabaseError(f"Error getting tags: {e}") from e
-
-    def close(self) -> None:
-        """Closes the database connection."""
-        if self.conn:
-            self.conn.close()
