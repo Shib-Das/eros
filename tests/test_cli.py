@@ -11,16 +11,16 @@ def runner():
     return CliRunner()
 
 @pytest.fixture
-def image_directory(tmp_path):
-    """Creates a temporary directory with some dummy image files."""
-    d = tmp_path / "images"
+def media_directory(tmp_path):
+    """Creates a temporary directory with some dummy media files."""
+    d = tmp_path / "media"
     d.mkdir()
     (d / "image1.jpg").touch()
-    (d / "image2.png").touch()
+    (d / "video1.mp4").touch()
     return d
 
 @patch("eros.cli.ErosApp")
-def test_tag_command_success(mock_eros_app_class, runner, image_directory):
+def test_tag_command_success(mock_eros_app_class, runner, media_directory):
     """Tests the tag command with valid options."""
     # Configure the mock ErosApp
     mock_app_instance = MagicMock()
@@ -31,7 +31,7 @@ def test_tag_command_success(mock_eros_app_class, runner, image_directory):
         tag,
         [
             "--input-path",
-            str(image_directory),
+            str(media_directory),
             "--model-path",
             "tests/model.onnx",
             "--db-path",
@@ -47,12 +47,12 @@ def test_tag_command_success(mock_eros_app_class, runner, image_directory):
     assert result.exit_code == 0
     assert "Tagging complete." in result.output
 
-    # Assert that the ErosApp was initialized and tag_images was called correctly
+    # Assert that the ErosApp was initialized and tag_media was called correctly
     mock_eros_app_class.assert_called_once_with(
         Path("tests/model.onnx"), Path("test.db"), 2
     )
-    mock_app_instance.tag_images.assert_called_once_with(
-        image_directory, 0.5
+    mock_app_instance.tag_media.assert_called_once_with(
+        media_directory, 0.5
     )
 
 def test_tag_command_missing_input_path(runner):
@@ -61,8 +61,8 @@ def test_tag_command_missing_input_path(runner):
     assert result.exit_code != 0
     assert "Missing option '--input-path'" in result.output
 
-def test_tag_command_missing_model_path(runner, image_directory):
+def test_tag_command_missing_model_path(runner, media_directory):
     """Tests the tag command with a missing model path."""
-    result = runner.invoke(tag, ["--input-path", str(image_directory)])
+    result = runner.invoke(tag, ["--input-path", str(media_directory)])
     assert result.exit_code != 0
     assert "Missing option '--model-path'" in result.output

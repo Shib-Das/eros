@@ -12,7 +12,7 @@ def cli():
     "--input-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     required=True,
-    help="The path to the directory containing the images to process.",
+    help="The path to the directory containing the media to process.",
 )
 @click.option(
     "--model-path",
@@ -45,13 +45,10 @@ def tag(
     threshold: float,
     batch_size: int,
 ):
-    """Tags images in a directory."""
+    """Tags media in a directory."""
     app = ErosApp(model_path, db_path, batch_size)
-    try:
-        app.tag_images(input_path, threshold)
-        click.echo("Tagging complete.")
-    finally:
-        app.close()
+    app.tag_media(input_path, threshold)
+    click.echo("Tagging complete.")
 
 if __name__ == "__main__":
     cli()

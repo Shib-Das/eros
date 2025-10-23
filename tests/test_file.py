@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
-from eros.file import discover_files, discover_images, discover_videos
+from PIL import Image
+from eros.file import discover_media, is_valid_image
 
 @pytest.fixture
 def test_directory(tmp_path):
@@ -17,36 +18,44 @@ def test_directory(tmp_path):
     (sub_dir / "video2.avi").touch()
     return d
 
-def test_discover_files(test_directory):
-    """Tests the discover_files function."""
-    files = discover_files(test_directory, [".jpg", ".png"])
-    assert len(files) == 2
-    assert {f.name for f in files} == {"image1.jpg", "image2.png"}
+def test_discover_media(test_directory):
+    """Tests the discover_media function."""
+    media_files = discover_media(test_directory)
+    assert len(media_files) == 5
+    assert {f.name for f in media_files} == {
+        "image1.jpg",
+        "image2.png",
+        "image3.jpeg",
+        "video1.mp4",
+        "video2.avi",
+    }
 
-def test_discover_images(test_directory):
-    """Tests the discover_images function."""
-    images = discover_images(test_directory)
-    assert len(images) == 3
-    assert {i.name for i in images} == {"image1.jpg", "image2.png", "image3.jpeg"}
-
-def test_discover_videos(test_directory):
-    """Tests the discover_videos function."""
-    videos = discover_videos(test_directory)
-    assert len(videos) == 2
-    assert {v.name for v in videos} == {"video1.mp4", "video2.avi"}
-
-def test_discover_files_empty(tmp_path):
-    """Tests discover_files with an empty directory."""
+def test_discover_media_empty(tmp_path):
+    """Tests discover_media with an empty directory."""
     d = tmp_path / "empty_dir"
     d.mkdir()
-    files = discover_files(d, [".jpg"])
-    assert len(files) == 0
+    media_files = discover_media(d)
+    assert len(media_files) == 0
 
-def test_discover_images_no_images(test_directory):
-    """Tests discover_images with a directory containing no images."""
-    # Create a directory with only a text file
-    d = test_directory.parent / "no_images"
+def test_discover_media_no_media(test_directory):
+    """Tests discover_media with a directory containing no media files."""
+    d = test_directory.parent / "no_media"
     d.mkdir()
     (d / "document.txt").touch()
-    images = discover_images(d)
-    assert len(images) == 0
+    media_files = discover_media(d)
+    assert len(media_files) == 0
+
+def test_is_valid_image(tmp_path):
+    """Tests the is_valid_image function."""
+    # Create a valid image file
+    valid_image_path = tmp_path / "valid.jpg"
+    Image.new("RGB", (1, 1)).save(valid_image_path)
+    assert is_valid_image(valid_image_path)
+
+    # Create an invalid image file
+    invalid_image_path = tmp_path / "invalid.jpg"
+    invalid_image_path.write_text("not an image")
+    assert not is_valid_image(invalid_image_path)
+
+    # Test with a non-existent file
+    assert not is_valid_image(tmp_path / "non_existent.jpg")

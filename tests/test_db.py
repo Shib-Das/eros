@@ -1,6 +1,7 @@
 import pytest
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 from eros.db import Database, DatabaseError
 
 @pytest.fixture
@@ -39,8 +40,12 @@ def test_get_tags_non_existent_file(db):
     retrieved_tags = db.get_tags(Path("non_existent.jpg"))
     assert retrieved_tags is None
 
-def test_database_error():
-    """Tests that a DatabaseError is raised for an invalid database path."""
-    with pytest.raises(DatabaseError):
-        db = Database(Path("/invalid/path/to/db"))
+@patch("sqlite3.connect")
+def test_database_error(mock_sqlite_connect):
+    """Tests that a DatabaseError is raised when the database connection fails."""
+    # Configure the mock to raise an error
+    mock_sqlite_connect.side_effect = sqlite3.Error("Test error")
+
+    with pytest.raises(DatabaseError, match="Error connecting to database: Test error"):
+        db = Database(Path("any/path/will/do"))
         db.connect()

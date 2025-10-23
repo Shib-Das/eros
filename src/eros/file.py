@@ -1,18 +1,46 @@
 from pathlib import Path
 from typing import List
+from PIL import Image
 
-def discover_files(path: Path, extensions: List[str]) -> List[Path]:
-    """Discovers all files with the given extensions in the given path."""
+def discover_media(path: Path) -> List[Path]:
+    """
+    Discovers all media files (images and videos) in the given path.
+
+    Args:
+        path: The path to the directory to search.
+
+    Returns:
+        A list of paths to the media files.
+    """
+    media_extensions = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".mp4",
+        ".mkv",
+        ".avi",
+        ".mov",
+    ]
     return [
         f
         for f in path.glob("**/*")
-        if f.is_file() and f.suffix.lower() in extensions
+        if f.is_file() and f.suffix.lower() in media_extensions
     ]
 
-def discover_images(path: Path) -> List[Path]:
-    """Discovers all images in the given path."""
-    return discover_files(path, [".jpg", ".jpeg", ".png", ".gif"])
+def is_valid_image(path: Path) -> bool:
+    """
+    Checks if a file is a valid image.
 
-def discover_videos(path: Path) -> List[Path]:
-    """Discovers all videos in the given path."""
-    return discover_files(path, [".mp4", ".mkv", ".avi", ".mov"])
+    Args:
+        path: The path to the file.
+
+    Returns:
+        True if the file is a valid image, False otherwise.
+    """
+    try:
+        with Image.open(path) as img:
+            img.verify()
+        return True
+    except (IOError, SyntaxError):
+        return False
