@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from onnxruntime.capi.onnxruntime_pybind11_state import NoSuchFile
 
 from eros.tagger import Tagger, TaggerError
 from eros.error import ImageError
@@ -89,3 +90,26 @@ def test_predict_batching(mock_inference_session):
     call_args, _ = mock_session_instance.run.call_args
     input_batch = call_args[1]['input']
     assert input_batch.shape[0] == 4 # The batch sent to the model should be padded to 4
+
+@patch('onnxruntime.InferenceSession')
+@patch('eros.tagger.hf_hub_download')
+def test_tagger_download_model(mock_hf_hub_download, mock_inference_session):
+    """
+    Tests that the Tagger class attempts to download a model if it doesn't exist.
+    """
+    # Configure the mock hf_hub_download to return a dummy path
+    mock_hf_hub_download.return_value = "downloaded/model.onnx"
+
+    # Configure the mock InferenceSession to fail on the first call and succeed on the second
+    mock_inference_session.side_effect = [
+        NoSuchFile("File not found"),
+        MagicMock()
+    ]
+
+    # Initialize Tagger with a path that should trigger a download
+    tagger = Tagger("organization/repo_name/model.onnx")
+
+    # Assertions
+    mock_hf_hub_download.assert_called_once_with(repo_id="organization/repo_name", filename="model.onnx", local_dir="./models", local_dir_use_symlinks=False)
+    assert mock_inference_session.call_count == 2
+    assert tagger.session is not None
