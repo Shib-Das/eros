@@ -1,0 +1,11 @@
+pub mod app;
+pub mod args;
+pub mod ascii;
+pub mod core;
+pub mod db;
+pub mod deduplicate;
+pub mod file;
+pub mod tag;
+pub mod tui;
+pub mod ui;
+pub mod video;
