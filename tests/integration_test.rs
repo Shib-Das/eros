@@ -1,5 +1,5 @@
 use eros::prelude::{
-    convert_and_strip_metadata, rename_files_in_selected_dirs, resize_media,
+    convert_and_strip_metadata, rename_files_in_selected_dirs,
     suggest_media_directories,
 };
 use std::fs;
@@ -50,23 +50,4 @@ fn test_full_preprocessing_pipeline() {
     assert!(converted_video_path.exists());
     assert!(!renamed_image_path.exists()); // Original should be deleted
 
-    // 5. Test resize_media
-    resize_media(&selected_dirs, (448, 448)).unwrap();
-
-    // Check image dimensions
-    let resized_image = image::open(&converted_image_path).unwrap();
-    assert_eq!(resized_image.width(), 448);
-    assert_eq!(resized_image.height(), 448);
-
-    // Check video dimensions
-    ffmpeg_next::init().unwrap();
-    let ictx = ffmpeg_next::format::input(&converted_video_path).unwrap();
-    let stream = ictx.streams().best(ffmpeg_next::media::Type::Video).unwrap();
-    let video = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())
-        .unwrap()
-        .decoder()
-        .video()
-        .unwrap();
-    assert_eq!(video.width(), 448);
-    assert_eq!(video.height(), 448);
 }

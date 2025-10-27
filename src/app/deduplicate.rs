@@ -1,9 +1,9 @@
 use anyhow::Result;
- use image::{imageops::FilterType, DynamicImage, GenericImageView};
+ use image::{imageops::FilterType, DynamicImage};
  use std::{
  collections::{HashMap, HashSet},
  fs,
- path::{Path, PathBuf},
+ path::PathBuf,
  };
  use tokio::sync::mpsc;
  use walkdir::WalkDir;

@@ -1,4 +1,4 @@
-use image::{imageops::FilterType, DynamicImage, GenericImageView, Rgba};
+use image::{imageops::FilterType, DynamicImage, Rgba};
 use ratatui::layout::Rect;
 use rayon::prelude::*;
 
