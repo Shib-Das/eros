@@ -133,7 +133,7 @@ impl TaggingPipeline {
                         .tags
                         .label2tag()
                         .get(*tag)
-                        .map_or(false, |t| t.category() == category)
+                        .is_some_and(|t| t.category() == category)
             })
             .sorted_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(tag, &prob)| (tag.clone(), prob))

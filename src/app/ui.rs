@@ -110,7 +110,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, item)| {
             let text = match item {
-                MenuItem::Model => format!("Model: < {} >", config.model.to_string()),
+                MenuItem::Model => format!("Model: < {} >", config.model),
                 MenuItem::InputPath => format!("Input Path: {}", config.input_path),
                 MenuItem::Threshold => format!("Threshold: {}", config.threshold),
                 MenuItem::BatchSize => format!("Batch Size: {}", config.batch_size),

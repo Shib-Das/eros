@@ -1,6 +1,5 @@
 use crate::{
     app::ProgressUpdate,
-    db::Database,
     file::{TaggingResultSimple, TaggingResultSimpleTags},
 };
 use anyhow::Result;
@@ -75,12 +74,11 @@ pub async fn process_video(
     let mut overall_rating = "sfw";
 
     for frame_image in frame_images {
-        if show_ascii_art {
-            if tx.send(ProgressUpdate::Frame(frame_image.clone())).await.is_err() {
+        if show_ascii_art
+            && tx.send(ProgressUpdate::Frame(frame_image.clone())).await.is_err() {
                 // UI receiver has been dropped, so we can stop.
                 anyhow::bail!("UI closed");
             }
-        }
 
         // Determine rating, stopping at the first NSFW frame
         if overall_rating != "nsfw" {
@@ -167,7 +165,7 @@ pub fn extract_frames(video_path: &Path) -> Result<Vec<DynamicImage>> {
 
                     let width = rgb_frame.width() as usize;
                     let height = rgb_frame.height() as usize;
-                    let stride = rgb_frame.stride(0) as usize;
+                    let stride = rgb_frame.stride(0);
                     let data = rgb_frame.data(0);
 
                     let mut image_data = Vec::with_capacity(width * height * 3);
