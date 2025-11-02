@@ -1,9 +1,8 @@
 use anyhow::Result;
-use image::DynamicImage;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{self, Read},
+    io::Read,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };

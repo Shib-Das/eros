@@ -25,7 +25,7 @@ pub fn create_ascii_art(image: &DynamicImage, area: Rect) -> String {
     let height = ascii_height;
 
     // Use a specific image format (RGBA) for predictable memory layout, which is safer for SIMD
-    let resized_image = image.resize_exact(width, height, FilterType::Nearest).to_rgba8();
+    let resized_image = image.resize(width, height, FilterType::Nearest).to_rgba8();
 
     // Process each row in parallel using Rayon
     let rows: Vec<String> = (0..resized_image.height())
