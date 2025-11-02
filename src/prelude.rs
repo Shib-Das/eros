@@ -1,5 +1,6 @@
 pub use crate::error::{ErosError, Result};
 use ffmpeg_next as ffmpeg;
+use image::imageops::FilterType;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -120,5 +121,92 @@ fn remux(from: &Path, to: &Path) -> Result<()> {
     }
 
     octx.write_trailer().map_err(|e| ErosError::Optimizer(e.to_string()))?;
+    Ok(())
+}
+
+pub fn resize_media(selected_dirs: &[PathBuf], size: (u32, u32)) -> Result<()> {
+    for dir in selected_dirs {
+        let entries: Vec<_> = WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+
+        for entry in entries {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                let ext_lower = ext.to_lowercase();
+
+                if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    let img = image::open(path)?;
+                    let resized_img = img.resize(size.0, size.1, FilterType::Lanczos3);
+                    resized_img.save(path)?;
+                } else if VIDEO_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    let temp_output_path = path.with_extension("temp_resized.mp4");
+
+                    let mut ictx = ffmpeg::format::input(path)?;
+                    let mut octx = ffmpeg::format::output(&temp_output_path)?;
+
+                    let in_stream_index = {
+                        let in_stream = ictx.streams().best(ffmpeg::media::Type::Video).ok_or(ffmpeg::Error::StreamNotFound)?;
+                        in_stream.index()
+                    };
+                    let mut out_stream = octx.add_stream(None)?;
+
+                    let context_decoder = ffmpeg::codec::context::Context::from_parameters(ictx.stream(in_stream_index).unwrap().parameters())?;
+                    let mut decoder = context_decoder.decoder().video()?;
+
+                    out_stream.set_parameters(ictx.stream(in_stream_index).unwrap().parameters());
+
+                    let (new_width, new_height) = {
+                        let width = decoder.width();
+                        let height = decoder.height();
+                        let ratio = width as f32 / height as f32;
+                        if ratio > 1.0 {
+                            (size.0, (size.0 as f32 / ratio).round() as u32)
+                        } else {
+                            ((size.1 as f32 * ratio).round() as u32, size.1)
+                        }
+                    };
+                    let mut scaler = ffmpeg::software::scaling::context::Context::get(
+                        decoder.format(),
+                        decoder.width(),
+                        decoder.height(),
+                        ffmpeg::format::Pixel::YUV420P,
+                        new_width,
+                        new_height,
+                        ffmpeg::software::scaling::flag::Flags::LANCZOS,
+                    )?;
+
+                    let context_encoder = ffmpeg::codec::context::Context::from_parameters(out_stream.parameters())?;
+                    let mut encoder = context_encoder.encoder().video()?;
+
+                    octx.write_header()?;
+
+                    for (stream, packet) in ictx.packets() {
+                        if stream.index() == in_stream_index {
+                            decoder.send_packet(&packet)?;
+                            let mut decoded = ffmpeg::frame::Video::empty();
+                            while decoder.receive_frame(&mut decoded).is_ok() {
+                                let mut scaled = ffmpeg::frame::Video::empty();
+                                scaler.run(&decoded, &mut scaled)?;
+                                encoder.send_frame(&scaled)?;
+                                let mut encoded = ffmpeg::Packet::empty();
+                                while encoder.receive_packet(&mut encoded).is_ok() {
+                                    encoded.write_interleaved(&mut octx)?;
+                                }
+                            }
+                        } else {
+                            packet.write_interleaved(&mut octx)?;
+                        }
+                    }
+
+                    octx.write_trailer()?;
+                    fs::remove_file(path)?;
+                    fs::rename(&temp_output_path, path.with_extension("mp4"))?;
+                }
+            }
+        }
+    }
     Ok(())
 }
