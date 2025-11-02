@@ -2,8 +2,10 @@ use ffmpeg_next as ffmpeg;
 use image::{ImageBuffer, Rgb};
 use std::{fs, path::Path, sync::Once};
 
+#[allow(dead_code)]
 static SETUP: Once = Once::new();
 
+#[allow(dead_code)]
 fn generate_test_image(path: &Path) {
     let img_width = 100;
     let img_height = 100;
@@ -14,6 +16,7 @@ fn generate_test_image(path: &Path) {
     img.save(path).unwrap();
 }
 
+#[allow(dead_code)]
 fn generate_test_video(path: &Path) {
     ffmpeg::init().unwrap();
 
@@ -34,7 +37,7 @@ fn generate_test_video(path: &Path) {
     {
         let mut stream = octx.add_stream(ffmpeg::codec::Id::MPEG4).unwrap();
         stream.set_time_base((1, 600)); // Set a compliant timebase for the stream
-        let mut encoder_ctx =
+        let encoder_ctx =
             ffmpeg::codec::context::Context::from_parameters(stream.parameters()).unwrap();
         let mut video_encoder = encoder_ctx.encoder().video().unwrap();
 
@@ -98,6 +101,7 @@ fn generate_test_video(path: &Path) {
     octx.write_trailer().unwrap();
 }
 
+#[allow(dead_code)]
 pub fn setup() {
     SETUP.call_once(|| {
         let assets_dir = Path::new("tests/assets");
