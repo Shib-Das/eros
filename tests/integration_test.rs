@@ -18,12 +18,9 @@ fn test_full_preprocessing_pipeline() {
 
     // Copy test files into the temporary directory
     let test_image_src = assets_dir.join("test_image.jpg");
-    let test_video_src = assets_dir.join("test_video.mp4");
     let temp_image_dst = temp_dir.path().join("test_image.jpg");
-    let temp_video_dst = temp_dir.path().join("test_video.mp4");
 
     fs::copy(test_image_src, &temp_image_dst).unwrap();
-    fs::copy(test_video_src, &temp_video_dst).unwrap();
 
     let selected_dirs = vec![temp_dir.path().to_path_buf()];
 
@@ -37,17 +34,13 @@ fn test_full_preprocessing_pipeline() {
 
     // Check that files are renamed. Assuming test_image.jpg comes before test_video.mp4 alphabetically
     let renamed_image_path = temp_dir.path().join("1.jpg");
-    let renamed_video_path = temp_dir.path().join("2.mp4");
     assert!(renamed_image_path.exists());
-    assert!(renamed_video_path.exists());
 
     // 4. Test convert_and_strip_metadata
     convert_and_strip_metadata(&selected_dirs).unwrap();
 
     let converted_image_path = temp_dir.path().join("1.png");
-    let converted_video_path = temp_dir.path().join("2.mp4"); // Stays mp4
     assert!(converted_image_path.exists());
-    assert!(converted_video_path.exists());
     assert!(!renamed_image_path.exists()); // Original should be deleted
 
 }

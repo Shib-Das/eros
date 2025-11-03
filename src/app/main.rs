@@ -16,13 +16,11 @@ mod file;
 mod tag;
 mod tui;
 mod ui;
-mod video;
 
 use anyhow::Result;
 use app::{App, ProgressUpdate};
 use args::{Args, Commands, V3Model};
 use clap::Parser;
-use ffmpeg_next as ffmpeg;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -32,9 +30,6 @@ use tokio::sync::mpsc;
 /// launches either the TUI or the CLI mode.
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize the `ffmpeg` library.
-    ffmpeg::init()?;
-
     let args = Args::parse();
 
     match args.command {
@@ -56,7 +51,6 @@ async fn run_cli(path: String, threshold: f32) -> Result<()> {
     let config = core::AppConfig {
         model: V3Model::SwinV2,
         input_path: path.clone(),
-        video_path: path.clone(),
         threshold,
         batch_size: 1,
         show_ascii_art: false,
