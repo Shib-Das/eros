@@ -14,9 +14,6 @@ pub enum ErosError {
     #[error("Image processing error: {0}")]
     Image(#[from] image::ImageError),
 
-    #[error("FFmpeg error: {0}")]
-    Ffmpeg(#[from] ffmpeg_next::Error),
-
     #[error("ONNX runtime error: {0}")]
     Ort(#[from] ort::Error),
 

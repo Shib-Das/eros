@@ -8,4 +8,3 @@ pub mod file;
 pub mod tag;
 pub mod tui;
 pub mod ui;
-pub mod video;

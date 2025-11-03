@@ -118,7 +118,6 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
                     format!("Show ASCII Art: < {} >", if app.show_ascii_art { "On" } else { "Off" })
                 }
                 MenuItem::Start => "Start Processing".to_string(),
-                MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
             };
             let style = if i == app.menu_index() {
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)

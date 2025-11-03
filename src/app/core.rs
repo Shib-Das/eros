@@ -12,7 +12,6 @@ use crate::{
     args::V3Model,
     db::Database,
     file::{self, TaggingResultSimple},
-    video,
 };
 use eros::{
     pipeline::TaggingPipeline,
@@ -32,20 +31,9 @@ pub async fn run_full_process(
 ) -> Result<()> {
     deduplicate::remove_duplicate_images(&selected_dirs, &tx).await?;
     tx.send(ProgressUpdate::Progress(0.02)).await?;
-    deduplicate::remove_duplicate_videos(&selected_dirs, &tx).await?;
-    tx.send(ProgressUpdate::Progress(0.04)).await?;
     prepare_media_files(&selected_dirs, &tx).await?;
     let (pipe, rating_model, db) = initialize_pipeline_and_db(&config, &tx).await?;
     process_images(
-        &selected_dirs,
-        &pipe,
-        &rating_model,
-        &db,
-        &tx,
-        config.show_ascii_art,
-    )
-    .await?;
-    process_videos(
         &selected_dirs,
         &pipe,
         &rating_model,
@@ -82,11 +70,6 @@ async fn prepare_media_files(
     .await?;
     prelude::convert_and_strip_metadata(selected_dirs)?;
     tx.send(ProgressUpdate::Progress(0.1)).await?;
-
-    tx.send(ProgressUpdate::Message("Resizing media...".to_string()))
-        .await?;
-    prelude::resize_media(selected_dirs, (448, 448))?;
-    tx.send(ProgressUpdate::Progress(0.15)).await?;
     Ok(())
 }
 
@@ -181,53 +164,6 @@ async fn process_images(
     Ok(())
 }
 
-/// Processes all video files in the selected directories.
-async fn process_videos(
-    selected_dirs: &[PathBuf],
-    pipe: &Arc<Mutex<TaggingPipeline>>,
-    rating_model: &Arc<Mutex<RatingModel>>,
-    db: &Arc<Mutex<Database>>,
-    tx: &mpsc::Sender<ProgressUpdate>,
-    show_ascii_art: bool,
-) -> Result<()> {
-    let mut video_files = Vec::new();
-    for dir in selected_dirs {
-        if let Some(dir_str) = dir.to_str() {
-            video_files.extend(video::get_video_files(dir_str).await?);
-        }
-    }
-
-    let total_videos = video_files.len();
-    if total_videos > 0 {
-        tx.send(ProgressUpdate::Message(format!(
-            "Processing {} video files...",
-            total_videos
-        )))
-        .await?;
-        let mut results = Vec::new();
-        for (i, video_file) in video_files.into_iter().enumerate() {
-            if let Ok(result) = video::process_video(
-                &video_file,
-                pipe,
-                rating_model,
-                get_hash,
-                tx,
-                show_ascii_art,
-            )
-            .await
-            {
-                results.push(result);
-            }
-            tx.send(ProgressUpdate::Progress(
-                0.625 + 0.375 * (i + 1) as f64 / total_videos as f64,
-            ))
-            .await?;
-        }
-        db.lock().unwrap().save_video_tags_batch(&results)?;
-    }
-    Ok(())
-}
-
 /// Computes the SHA256 hash of a file.
 fn get_hash(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
@@ -248,7 +184,6 @@ fn get_hash(path: &Path) -> Result<String> {
 pub struct AppConfig {
     pub model: V3Model,
     pub input_path: String,
-    pub video_path: String,
     pub threshold: f32,
     pub batch_size: usize,
     pub show_ascii_art: bool,
