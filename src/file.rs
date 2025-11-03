@@ -24,7 +24,7 @@ pub async fn download_file(url: &str, dest_path: &Path) -> Result<()> {
     );
 
     let mut dest =
-        File::create(dest_path).with_context(|| format!("Failed to create file at {:?}", dest_path))?;
+        File::create(&dest_path).with_context(|| format!("Failed to create file at {:?}", dest_path))?;
 
     let mut response = response;
     while let Some(chunk) = response

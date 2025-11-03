@@ -111,7 +111,7 @@ impl ImagePreprocessor {
         anyhow::ensure!(input_size.len() == 3, "Invalid input size");
 
         let mean = vec![0.48145466, 0.4578275, 0.40821073];
-        let std = vec![0.26862954, 0.261_302_6, 0.275_777_1];
+        let std = vec![0.26862954, 0.26130258, 0.27577711];
 
         Ok(Self::new(
             input_size[1],

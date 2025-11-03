@@ -25,6 +25,7 @@ pub enum ProgressUpdate {
     Message(String),
     Progress(f64),
     Error(String),
+    Frame(DynamicImage),
     ImageProcessed(PathBuf),
     Complete,
 }
@@ -45,6 +46,7 @@ pub enum CurrentScreen {
 pub enum MenuItem {
     Model,
     InputPath,
+    VideoPath,
     Threshold,
     BatchSize,
     ShowAsciiArt,
@@ -80,6 +82,7 @@ impl Default for App {
             config: AppConfig {
                 model: V3Model::SwinV2,
                 input_path: "./images".to_string(),
+                video_path: "./videos".to_string(),
                 threshold: 0.5,
                 batch_size: 1,
                 show_ascii_art: false,
@@ -89,6 +92,7 @@ impl Default for App {
             menu_items: vec![
                 MenuItem::Model,
                 MenuItem::InputPath,
+                MenuItem::VideoPath,
                 MenuItem::Threshold,
                 MenuItem::BatchSize,
                 MenuItem::ShowAsciiArt,
@@ -142,6 +146,9 @@ impl App {
                         self.is_error = true;
                         self.current_screen = CurrentScreen::Finished;
                         self.rx = None;
+                    }
+                    ProgressUpdate::Frame(frame) => {
+                        self.current_frame = Some(frame);
                     }
                     ProgressUpdate::ImageProcessed(path) => {
                         let is_at_end = self.processed_image_paths.is_empty()
@@ -231,6 +238,7 @@ impl App {
             KeyCode::Enter if !self.selected_dirs.is_empty() => {
                 if let Some(dir_str) = self.selected_dirs[0].to_str() {
                     self.config.input_path = dir_str.to_string();
+                    self.config.video_path = dir_str.to_string();
                 }
                 self.current_screen = CurrentScreen::Main;
             }
@@ -294,6 +302,7 @@ impl App {
         self.currently_editing = Some(item);
         self.input_text = match item {
             MenuItem::InputPath => self.config.input_path.clone(),
+            MenuItem::VideoPath => self.config.video_path.clone(),
             MenuItem::Threshold => self.config.threshold.to_string(),
             MenuItem::BatchSize => self.config.batch_size.to_string(),
             _ => String::new(),
@@ -322,6 +331,7 @@ impl App {
         if let Some(editing) = self.currently_editing {
             match editing {
                 MenuItem::InputPath => self.config.input_path = self.input_text.clone(),
+                MenuItem::VideoPath => self.config.video_path = self.input_text.clone(),
                 MenuItem::Threshold => {
                     self.config.threshold = self.input_text.parse().unwrap_or(self.config.threshold);
                 }

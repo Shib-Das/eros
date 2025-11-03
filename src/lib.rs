@@ -23,7 +23,6 @@
 //! - `prelude`: A collection of the most commonly used types.
 
 pub mod config;
-pub mod error;
 pub mod file;
 pub mod pipeline;
 pub mod prelude;

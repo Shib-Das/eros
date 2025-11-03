@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::fmt::{self, Display};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -23,14 +22,17 @@ pub enum Commands {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
 pub enum V3Model {
     VitLarge,
     Eva02Large,
-    #[default]
     SwinV2,
 }
 
+impl Default for V3Model {
+    fn default() -> Self {
+        V3Model::SwinV2
+    }
+}
 
 impl V3Model {
     pub fn repo_id(&self) -> String {
@@ -50,13 +52,12 @@ impl V3Model {
     }
 }
 
-impl Display for V3Model {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let model_name = match self {
-            V3Model::VitLarge => "ViT-Large",
-            V3Model::Eva02Large => "Eva02-Large",
-            V3Model::SwinV2 => "SwinV2",
-        };
-        write!(f, "{}", model_name)
+impl ToString for V3Model {
+    fn to_string(&self) -> String {
+        match self {
+            V3Model::VitLarge => "ViT-Large".to_string(),
+            V3Model::Eva02Large => "Eva02-Large".to_string(),
+            V3Model::SwinV2 => "SwinV2".to_string(),
+        }
     }
 }

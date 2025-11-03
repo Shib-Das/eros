@@ -110,7 +110,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, item)| {
             let text = match item {
-                MenuItem::Model => format!("Model: < {} >", config.model),
+                MenuItem::Model => format!("Model: < {} >", config.model.to_string()),
                 MenuItem::InputPath => format!("Input Path: {}", config.input_path),
                 MenuItem::Threshold => format!("Threshold: {}", config.threshold),
                 MenuItem::BatchSize => format!("Batch Size: {}", config.batch_size),
@@ -118,6 +118,7 @@ fn render_menu(f: &mut Frame, app: &App, area: Rect) {
                     format!("Show ASCII Art: < {} >", if app.show_ascii_art { "On" } else { "Off" })
                 }
                 MenuItem::Start => "Start Processing".to_string(),
+                MenuItem::VideoPath => format!("Video Path: {}", config.video_path),
             };
             let style = if i == app.menu_index() {
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)

@@ -1,8 +1,9 @@
 use anyhow::Result;
+use image::DynamicImage;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Read,
+    io::{self, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -12,6 +13,7 @@ use crate::{
     args::V3Model,
     db::Database,
     file::{self, TaggingResultSimple},
+    video,
 };
 use eros::{
     pipeline::TaggingPipeline,
@@ -21,7 +23,6 @@ use eros::{
 };
 
 use super::app::ProgressUpdate;
-use super::deduplicate;
 
 /// Runs the full media processing pipeline.
 pub async fn run_full_process(
@@ -29,11 +30,18 @@ pub async fn run_full_process(
     selected_dirs: Vec<PathBuf>,
     tx: mpsc::Sender<ProgressUpdate>,
 ) -> Result<()> {
-    deduplicate::remove_duplicate_images(&selected_dirs, &tx).await?;
-    tx.send(ProgressUpdate::Progress(0.02)).await?;
     prepare_media_files(&selected_dirs, &tx).await?;
     let (pipe, rating_model, db) = initialize_pipeline_and_db(&config, &tx).await?;
     process_images(
+        &selected_dirs,
+        &pipe,
+        &rating_model,
+        &db,
+        &tx,
+        config.show_ascii_art,
+    )
+    .await?;
+    process_videos(
         &selected_dirs,
         &pipe,
         &rating_model,
@@ -70,6 +78,11 @@ async fn prepare_media_files(
     .await?;
     prelude::convert_and_strip_metadata(selected_dirs)?;
     tx.send(ProgressUpdate::Progress(0.1)).await?;
+
+    tx.send(ProgressUpdate::Message("Resizing media...".to_string()))
+        .await?;
+    prelude::resize_media(selected_dirs, (448, 448))?;
+    tx.send(ProgressUpdate::Progress(0.15)).await?;
     Ok(())
 }
 
@@ -131,7 +144,6 @@ async fn process_images(
             total_images
         )))
         .await?;
-        let mut results = Vec::new();
         for (i, image_file) in image_files.into_iter().enumerate() {
             let img = image::open(&image_file)?;
             if show_ascii_art {
@@ -142,24 +154,66 @@ async fn process_images(
             }
             let rating = rating_model.lock().unwrap().rate(&img)?;
             let result = pipe.lock().unwrap().predict(img, None)?;
+            let simple_result = TaggingResultSimple::from(result);
             let hash = get_hash(&image_file)?;
             let size = fs::metadata(&image_file)?.len();
             if let Some(path_str) = image_file.to_str() {
-                let simple_result = TaggingResultSimple::from((
-                    result,
-                    path_str.to_string(),
+                db.lock().unwrap().save_image_tags(
+                    path_str,
                     size,
-                    hash,
-                    rating.to_string(),
-                ));
-                results.push(simple_result);
+                    &hash,
+                    &simple_result.tags,
+                    rating.as_str(),
+                )?;
             }
             tx.send(ProgressUpdate::Progress(
                 0.25 + 0.375 * (i + 1) as f64 / total_images as f64,
             ))
             .await?;
         }
-        db.lock().unwrap().save_image_tags_batch(&results)?;
+    }
+    Ok(())
+}
+
+/// Processes all video files in the selected directories.
+async fn process_videos(
+    selected_dirs: &[PathBuf],
+    pipe: &Arc<Mutex<TaggingPipeline>>,
+    rating_model: &Arc<Mutex<RatingModel>>,
+    db: &Arc<Mutex<Database>>,
+    tx: &mpsc::Sender<ProgressUpdate>,
+    show_ascii_art: bool,
+) -> Result<()> {
+    let mut video_files = Vec::new();
+    for dir in selected_dirs {
+        if let Some(dir_str) = dir.to_str() {
+            video_files.extend(video::get_video_files(dir_str).await?);
+        }
+    }
+
+    let total_videos = video_files.len();
+    if total_videos > 0 {
+        tx.send(ProgressUpdate::Message(format!(
+            "Processing {} video files...",
+            total_videos
+        )))
+        .await?;
+        for (i, video_file) in video_files.into_iter().enumerate() {
+            video::process_video(
+                &video_file,
+                pipe,
+                rating_model,
+                db,
+                get_hash,
+                tx,
+                show_ascii_art,
+            )
+            .await?;
+            tx.send(ProgressUpdate::Progress(
+                0.625 + 0.375 * (i + 1) as f64 / total_videos as f64,
+            ))
+            .await?;
+        }
     }
     Ok(())
 }
@@ -184,58 +238,8 @@ fn get_hash(path: &Path) -> Result<String> {
 pub struct AppConfig {
     pub model: V3Model,
     pub input_path: String,
+    pub video_path: String,
     pub threshold: f32,
     pub batch_size: usize,
     pub show_ascii_art: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use super::deduplicate::remove_duplicate_images;
-    use image::{DynamicImage, Rgb, RgbImage};
-    use tempfile::tempdir;
-
-    #[tokio::test]
-    async fn test_remove_duplicate_images_integration() -> Result<()> {
-        let temp_dir = tempdir()?;
-        let dir_path = temp_dir.path().to_path_buf();
-
-        // 1. Create test images
-        let original_path = dir_path.join("a_original.png");
-        let original_img =
-            DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, Rgb([80, 120, 160])));
-        original_img.save(&original_path)?;
-
-        let duplicate_path = dir_path.join("b_duplicate.png");
-        original_img.save(&duplicate_path)?;
-
-        let similar_path = dir_path.join("c_similar.png");
-        let mut similar_img = original_img.to_rgb8();
-        similar_img.put_pixel(50, 50, Rgb([81, 121, 161]));
-        DynamicImage::ImageRgb8(similar_img).save(&similar_path)?;
-
-        let different_path = dir_path.join("d_different.png");
-        let different_img =
-            DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, Rgb([200, 220, 250])));
-        different_img.save(&different_path)?;
-
-        // 2. Run the deduplication function
-        let (tx, mut rx) = mpsc::channel(100);
-        let selected_dirs = vec![dir_path];
-
-        tokio::spawn(async move {
-            while let Some(_) = rx.recv().await {}
-        });
-
-        remove_duplicate_images(&selected_dirs, &tx).await?;
-
-        // 3. Assert the results
-        assert!(original_path.exists(), "Original image should not be removed.");
-        assert!(!duplicate_path.exists(), "Exact duplicate should have been removed.");
-        assert!(!similar_path.exists(), "Similar image should have been removed.");
-        assert!(different_path.exists(), "Different image should not be removed.");
-
-        Ok(())
-    }
 }

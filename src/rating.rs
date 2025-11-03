@@ -31,14 +31,6 @@ pub enum Rating {
     Sfw,
 }
 
-use std::fmt;
-
-impl fmt::Display for Rating {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
 impl Rating {
     /// Creates a new `Rating` from a label string.
     fn from_label(label: &str) -> Result<Self> {
